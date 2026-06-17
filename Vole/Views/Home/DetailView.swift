@@ -146,10 +146,24 @@ struct DetailView: View {
                                     showSafari = true
                                 }
                             } label: {
-                                Text(title)
-                                    .font(.title)
-                                    .bold()
-                                    .foregroundColor(.primary)
+                                HStack {
+                                    Text(title)
+                                        .font(.title)
+                                        .bold()
+                                        .foregroundColor(.primary)
+                                        .multilineTextAlignment(.leading)
+                                        .fixedSize(
+                                            horizontal: false,
+                                            vertical: true
+                                        )
+
+                                    Spacer(minLength: 0)
+                                }
+                                .frame(
+                                    maxWidth: .infinity,
+                                    alignment: .leading
+                                )
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
                         }
