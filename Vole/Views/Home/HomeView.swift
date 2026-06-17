@@ -35,6 +35,7 @@ struct HomeView: View {
                 }
             )
             .navigationTitle("主页")
+            .modifier(HomeTitleDisplayModeModifier())
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .topicId(let topicId):
@@ -64,10 +65,16 @@ struct HomeView: View {
                             collections: collectionManager.customCollections
                         )
                     }
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    AvatarView {
-                        showProfile = true
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        AvatarView {
+                            showProfile = true
+                        }
+                    }
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        AvatarView {
+                            showProfile = true
+                        }
                     }
                 }
             }
@@ -95,13 +102,6 @@ struct HomeView: View {
                 }
             }
         }
-    }
-
-    private var availableFeeds: [HomeFeed] {
-        HomeFeed.builtInFeeds
-            + collectionManager.customCollections.map {
-                HomeFeed.collection($0.id)
-            }
     }
 
     @MainActor
@@ -176,6 +176,17 @@ struct HomeView: View {
     }
 }
 
+private struct HomeTitleDisplayModeModifier: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content
+                .toolbarTitleDisplayMode(.inlineLarge)
+        } else {
+            content
+        }
+    }
+}
+
 struct HomeFeedPicker: View {
     @Binding var selection: HomeFeed
     let collections: [NodeCollection]
@@ -202,16 +213,7 @@ private struct HomeFeedPage: View {
     var body: some View {
         Group {
             if let topics, !topics.isEmpty {
-                List {
-                    ForEach(topics) { topic in
-                        TopicRow(topic: topic) {
-                            onSelectTopic(topic)
-                        }
-                    }
-                }
-                .refreshable {
-                    await onLoad()
-                }
+                topicList(topics)
             } else if isLoading {
                 ZStack {
                     ProgressView("加载中…")
@@ -237,6 +239,29 @@ private struct HomeFeedPage: View {
                     alignment: .center
                 )
             }
+        }
+    }
+
+    @ViewBuilder
+    private func topicList(_ topics: [Topic]) -> some View {
+        if #available(iOS 26, *) {
+            list(topics)
+                .contentMargins(.top, 0, for: .scrollContent)
+        } else {
+            list(topics)
+        }
+    }
+
+    private func list(_ topics: [Topic]) -> some View {
+        List {
+            ForEach(topics) { topic in
+                TopicRow(topic: topic) {
+                    onSelectTopic(topic)
+                }
+            }
+        }
+        .refreshable {
+            await onLoad()
         }
     }
 }
