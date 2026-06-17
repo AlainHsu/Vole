@@ -9,7 +9,7 @@ import SwiftUI
 
 struct HomeView: View {
 
-    @State private var selection: HomeFeed = .latest
+    @Binding var selection: HomeFeed
     @State private var data: [HomeFeed: [Topic]] = [:]
     @State private var showProfile = false
     @State private var loadingFeeds: Set<HomeFeed> = []
@@ -17,6 +17,10 @@ struct HomeView: View {
     @ObservedObject private var userManager = UserManager.shared
     @StateObject private var collectionManager = NodeCollectionManager.shared
     @EnvironmentObject var navManager: NavigationManager
+
+    init(selection: Binding<HomeFeed> = .constant(.latest)) {
+        _selection = selection
+    }
 
     var body: some View {
         NavigationStack(path: $navManager.homePath) {
@@ -53,23 +57,12 @@ struct HomeView: View {
                 }
             }
             .toolbar {
-                let picker = Picker("category", selection: $selection) {
-                    ForEach(HomeFeed.builtInFeeds) { item in
-                        Text(item.title).tag(item)
-                    }
-                    ForEach(collectionManager.customCollections) {
-                        collection in
-                        Text(collection.name).tag(HomeFeed.collection(collection.id))
-                    }
-                }
-                .pickerStyle(.segmented)
-                if #available(iOS 26, *) {
-                    ToolbarItem(placement: .principal) {
-                        picker
-                    }
-                } else {
+                if #unavailable(iOS 26) {
                     ToolbarItem(placement: .topBarLeading) {
-                        picker
+                        HomeFeedPicker(
+                            selection: $selection,
+                            collections: collectionManager.customCollections
+                        )
                     }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -180,6 +173,23 @@ struct HomeView: View {
             }
             return all.sorted { ($0.created ?? 0) > ($1.created ?? 0) }
         }
+    }
+}
+
+struct HomeFeedPicker: View {
+    @Binding var selection: HomeFeed
+    let collections: [NodeCollection]
+
+    var body: some View {
+        Picker("category", selection: $selection) {
+            ForEach(HomeFeed.builtInFeeds) { item in
+                Text(item.title).tag(item)
+            }
+            ForEach(collections) { collection in
+                Text(collection.name).tag(HomeFeed.collection(collection.id))
+            }
+        }
+        .pickerStyle(.segmented)
     }
 }
 
