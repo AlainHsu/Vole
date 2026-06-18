@@ -8,6 +8,7 @@
 import Foundation
 import ImageIO
 import Kingfisher
+import LinkPresentation
 import MarkdownView
 import QuickLook
 import SwiftUI
@@ -29,18 +30,26 @@ struct VoleMarkdownView: View {
     var onLinkAction: ((LinkAction) -> Void)?  // 统一处理链接事件
 
     var body: some View {
-        let (md, mentions) = makeMarkdown(content)
-        let imageURLs = MarkdownImageCollector.imageURLs(in: md)
+        let renderedBlocks = makeRenderedBlocks(content)
+        let imageURLs = MarkdownImageCollector.imageURLs(
+            in: renderedBlocks.markdown
+        )
         let renderer = TappableMarkdownImageRenderer(
             imageURLs: imageURLs,
             openImagePreview: openImagePreview
         )
 
-        MarkdownView(md)
-            .markdownImageRenderer(renderer, forURLScheme: "http")
-            .markdownImageRenderer(renderer, forURLScheme: "https")
-            .markdownTableStyle(HorizontalScrollableMarkdownTableStyle())
-            .textSelection(.enabled)
+        VStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(renderedBlocks.blocks.enumerated()), id: \.offset) {
+                _, block in
+                switch block {
+                case .markdown(let markdown):
+                    markdownBlock(markdown, renderer: renderer)
+                case .linkPreview(let url, let title):
+                    MarkdownLinkPreviewCard(url: url, title: title)
+                }
+            }
+        }
             .overlay(alignment: .center) {
                 if isPreparingImagePreview {
                     ProgressView()
@@ -50,13 +59,53 @@ struct VoleMarkdownView: View {
             }
             .quickLookPreview($selectedQuickLookURL, in: quickLookURLs)
             .task(id: content) { @MainActor in
-                onMentionsChanged?(mentions)
+                onMentionsChanged?(renderedBlocks.mentions)
             }
             .environment(\.openURL, OpenURLAction(handler: handleOpenURL))
     }
 
     private func makeMarkdown(_ content: String) -> (String, [String]) {
         MarkdownContentFormatter().format(content)
+    }
+
+    private func makeRenderedBlocks(_ content: String) -> (
+        blocks: [MarkdownRenderBlock],
+        mentions: [String],
+        markdown: String
+    ) {
+        var blocks: [MarkdownRenderBlock] = []
+        var mentions: [String] = []
+        var markdownSegments: [String] = []
+
+        for block in MarkdownRenderBlockParser.blocks(from: content) {
+            switch block {
+            case .markdown(let rawMarkdown):
+                let (markdown, blockMentions) = makeMarkdown(rawMarkdown)
+                blocks.append(.markdown(markdown))
+                mentions.append(contentsOf: blockMentions)
+                markdownSegments.append(markdown)
+            case .linkPreview:
+                blocks.append(block)
+            }
+        }
+
+        return (
+            blocks,
+            mentions,
+            markdownSegments.joined(separator: "\n\n")
+        )
+    }
+
+    @ViewBuilder
+    private func markdownBlock(
+        _ markdown: String,
+        renderer: TappableMarkdownImageRenderer
+    ) -> some View {
+        MarkdownView(markdown)
+            .markdownImageRenderer(renderer, forURLScheme: "http")
+            .markdownImageRenderer(renderer, forURLScheme: "https")
+            .markdownTableStyle(HorizontalScrollableMarkdownTableStyle())
+            .textSelection(.enabled)
     }
 
     private func handleOpenURL(_ url: URL) -> OpenURLAction.Result {
@@ -119,6 +168,317 @@ struct VoleMarkdownView: View {
                     if UIApplication.shared.canOpenURL(url) {
                         UIApplication.shared.open(url)
                     }
+                }
+            }
+        }
+    }
+}
+
+private enum MarkdownRenderBlock {
+    case markdown(String)
+    case linkPreview(url: URL, title: String?)
+}
+
+private enum MarkdownRenderBlockParser {
+    private static let markdownLinkPattern =
+        #"^\[([^\]]+)\]\((https?://[^)]+)\)$"#
+
+    static func blocks(from content: String) -> [MarkdownRenderBlock] {
+        var blocks: [MarkdownRenderBlock] = []
+        var markdownLines: [String] = []
+        var isInsideCodeFence = false
+
+        func flushMarkdown() {
+            guard !markdownLines.isEmpty else { return }
+            blocks.append(.markdown(markdownLines.joined(separator: "\n")))
+            markdownLines.removeAll(keepingCapacity: true)
+        }
+
+        for line in content.components(separatedBy: .newlines) {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            if trimmed.hasPrefix("```") {
+                isInsideCodeFence.toggle()
+                markdownLines.append(line)
+                continue
+            }
+
+            if !isInsideCodeFence,
+               let lineComponents = linkPreviewComponents(from: trimmed) {
+                flushMarkdown()
+                blocks.append(
+                    .linkPreview(url: lineComponents.url, title: lineComponents.title)
+                )
+                continue
+            }
+
+            markdownLines.append(line)
+        }
+
+        flushMarkdown()
+        return blocks
+    }
+
+    private static func linkPreviewComponents(from line: String) -> (
+        url: URL,
+        title: String?
+    )? {
+        guard !line.isEmpty else { return nil }
+        guard !line.hasPrefix("![") else { return nil }
+
+        if let url = URL(string: line),
+           url.scheme?.lowercased().hasPrefix("http") == true,
+           !url.looksLikeImageURL {
+            return (url, nil)
+        }
+
+        return standaloneMarkdownLinkComponents(from: line)
+    }
+
+    private static func standaloneMarkdownLinkComponents(from line: String) -> (
+        url: URL,
+        title: String?
+    )? {
+        guard let regex = try? NSRegularExpression(pattern: markdownLinkPattern)
+        else {
+            return nil
+        }
+
+        let nsLine = line as NSString
+        let range = NSRange(location: 0, length: nsLine.length)
+        guard let match = regex.firstMatch(in: line, range: range),
+              match.numberOfRanges == 3,
+              let titleRange = Range(match.range(at: 1), in: line),
+              let urlRange = Range(match.range(at: 2), in: line) else {
+            return nil
+        }
+
+        let title = String(line[titleRange])
+        let rawURL = String(line[urlRange])
+        guard let url = URL(string: rawURL), !url.looksLikeImageURL else {
+            return nil
+        }
+
+        return (url, title == rawURL ? nil : title)
+    }
+}
+
+private struct MarkdownLinkPreviewCard: View {
+    let url: URL
+    let title: String?
+
+    @Environment(\.openURL) private var openURL
+    @State private var preview: MarkdownLinkPreviewData?
+    @State private var isLoading = false
+
+    var body: some View {
+        Button {
+            openURL(url)
+        } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                previewImage
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(displayTitle)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+
+                    Text(displayHost)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if let summary = preview?.summary, !summary.isEmpty {
+                        Text(summary)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(3)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+                .padding(14)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(.secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .task(id: url) {
+            await loadPreviewIfNeeded()
+        }
+    }
+
+    @ViewBuilder
+    private var previewImage: some View {
+        if let image = preview?.image {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(maxWidth: .infinity)
+                .frame(height: 160)
+                .clipped()
+        } else {
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color.accentColor.opacity(0.20),
+                        Color.accentColor.opacity(0.08),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+
+                VStack(spacing: 10) {
+                    Image(systemName: "link")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+
+                    if isLoading {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 100)
+        }
+    }
+
+    private var displayTitle: String {
+        if let previewTitle = preview?.title, !previewTitle.isEmpty {
+            return previewTitle
+        }
+        if let title, !title.isEmpty {
+            return title
+        }
+        return url.absoluteString
+    }
+
+    private var displayHost: String {
+        if let host = preview?.host, !host.isEmpty {
+            return host
+        }
+        return url.host ?? url.absoluteString
+    }
+
+    @MainActor
+    private func loadPreviewIfNeeded() async {
+        if let cached = MarkdownLinkPreviewCache.shared.value(for: url) {
+            preview = cached
+            return
+        }
+
+        isLoading = true
+        defer { isLoading = false }
+
+        guard let metadata = try? await MarkdownLinkPreviewLoader.metadata(for: url) else {
+            return
+        }
+
+        MarkdownLinkPreviewCache.shared.insert(metadata, for: url)
+        preview = metadata
+    }
+}
+
+private struct MarkdownLinkPreviewData {
+    let title: String?
+    let host: String?
+    let summary: String?
+    let image: UIImage?
+}
+
+@MainActor
+private final class MarkdownLinkPreviewCache {
+    static let shared = MarkdownLinkPreviewCache()
+
+    private var values: [URL: MarkdownLinkPreviewData] = [:]
+
+    func value(for url: URL) -> MarkdownLinkPreviewData? {
+        values[url]
+    }
+
+    func insert(_ value: MarkdownLinkPreviewData, for url: URL) {
+        values[url] = value
+    }
+}
+
+private enum MarkdownLinkPreviewLoader {
+    static func metadata(for url: URL) async throws -> MarkdownLinkPreviewData {
+        let provider = LPMetadataProvider()
+        let metadata = try await provider.startFetchingMetadata(for: url)
+
+        async let image = loadImage(from: metadata.imageProvider)
+        async let icon = loadImage(from: metadata.iconProvider)
+
+        let primaryImage = await image
+        let fallbackIcon = await icon
+        let resolvedImage = primaryImage ?? fallbackIcon
+        let resolvedURL = metadata.originalURL ?? metadata.url ?? url
+
+        return MarkdownLinkPreviewData(
+            title: metadata.title,
+            host: resolvedURL.host,
+            summary: metadata.url?.absoluteString,
+            image: resolvedImage
+        )
+    }
+
+    private static func loadImage(from provider: NSItemProvider?) async -> UIImage? {
+        guard let provider else { return nil }
+
+        if provider.canLoadObject(ofClass: UIImage.self) {
+            return try? await loadObject(from: provider)
+        }
+
+        if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier),
+           let data = try? await loadData(from: provider),
+           let image = UIImage(data: data) {
+            return image
+        }
+
+        return nil
+    }
+
+    private static func loadObject(from provider: NSItemProvider) async throws -> UIImage {
+        try await withCheckedThrowingContinuation { continuation in
+            provider.loadObject(ofClass: UIImage.self) { object, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                if let image = object as? UIImage {
+                    continuation.resume(returning: image)
+                } else {
+                    continuation.resume(throwing: CocoaError(.coderInvalidValue))
+                }
+            }
+        }
+    }
+
+    private static func loadData(from provider: NSItemProvider) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) {
+                data,
+                error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                if let data {
+                    continuation.resume(returning: data)
+                } else {
+                    continuation.resume(throwing: CocoaError(.fileReadUnknown))
                 }
             }
         }
@@ -482,6 +842,14 @@ private extension URL {
         return pathExtension.lowercased() == "gif"
             || normalized.contains(".gif?")
             || normalized.hasSuffix(".gif")
+    }
+
+    var looksLikeImageURL: Bool {
+        let normalized = absoluteString.lowercased()
+        return normalized.range(
+            of: #"\.(png|jpg|jpeg|gif|webp|bmp|tiff)(\?.*)?$"#,
+            options: .regularExpression
+        ) != nil
     }
 
     var v2exTopicID: Int? {
