@@ -55,6 +55,7 @@ struct SearchHistoryView: View {
             }
             Button("取消", role: .cancel) {}
         }
+        .homeLikeListTopInset()
         .listStyle(.insetGrouped)
     }
 }

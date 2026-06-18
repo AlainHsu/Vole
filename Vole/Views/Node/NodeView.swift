@@ -77,6 +77,7 @@ struct NodeView: View {
             }
 
             .navigationTitle("节点")
+            .modifier(HomeTitleDisplayModeModifier())
             .task {
                 if nodeManager.groups.isEmpty {
                     await nodeManager.refreshNodes(force: true)

@@ -82,6 +82,7 @@ struct SearchResultView: View {
                 }
             }
         }
+        .homeLikeListTopInset()
         .sheet(isPresented: $isFilterPresented) {
             SearchFilterSheet(
                 options: $filterOptions,

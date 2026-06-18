@@ -40,6 +40,7 @@ struct SearchView: View {
                 }
             }
             .navigationTitle("搜索")
+            .modifier(HomeTitleDisplayModeModifier())
             .searchable(
                 text: $searchText,
                 isPresented: $isSearchPresented,

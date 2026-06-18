@@ -176,13 +176,24 @@ struct HomeView: View {
     }
 }
 
-private struct HomeTitleDisplayModeModifier: ViewModifier {
+struct HomeTitleDisplayModeModifier: ViewModifier {
     func body(content: Content) -> some View {
         if #available(iOS 26, *) {
             content
                 .toolbarTitleDisplayMode(.inlineLarge)
         } else {
             content
+        }
+    }
+}
+
+extension View {
+    @ViewBuilder
+    func homeLikeListTopInset() -> some View {
+        if #available(iOS 26, *) {
+            self.contentMargins(.top, 0, for: .scrollContent)
+        } else {
+            self
         }
     }
 }
@@ -244,12 +255,8 @@ private struct HomeFeedPage: View {
 
     @ViewBuilder
     private func topicList(_ topics: [Topic]) -> some View {
-        if #available(iOS 26, *) {
-            list(topics)
-                .contentMargins(.top, 0, for: .scrollContent)
-        } else {
-            list(topics)
-        }
+        list(topics)
+            .homeLikeListTopInset()
     }
 
     private func list(_ topics: [Topic]) -> some View {

@@ -51,12 +51,14 @@ struct NotifyView: View {
                             }
                         }
                     }
+                    .homeLikeListTopInset()
                     .refreshable {
                         await notifyManager.refresh()
                     }
                 }
             }
             .navigationTitle("通知")
+            .modifier(HomeTitleDisplayModeModifier())
             .navigationDestination(for: Route.self) { route in
                 switch route {
                 case .topicId(let topicId):
