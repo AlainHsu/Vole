@@ -209,6 +209,25 @@ public struct V2exAPI {
         )
     }
 
+    /**
+     获取指定主题
+
+     V1 `topics/show.json` 按 `id` 查询时返回的仍然是数组，
+     这里保持和原始接口一致。
+
+     - parameter topicId: 主题ID
+     */
+    public func topicV1(topicId: Int) async throws -> [Topic]? {
+        let path = "topics/show.json"
+        return try await request(
+            url: endpointV1 + path,
+            args: [
+                "id": topicId
+            ],
+            decodeClass: [Topic].self
+        )
+    }
+
     // =========== V2 ===========
 
     /**

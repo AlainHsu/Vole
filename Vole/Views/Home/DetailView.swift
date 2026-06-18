@@ -26,6 +26,7 @@ struct DetailView: View {
 
     @StateObject private var nodeManager = NodeManager.shared
     @ObservedObject var blockManager = BlockManager.shared
+    @ObservedObject private var userManager = UserManager.shared
 
     @State private var replies: [Reply]? = nil
     @State var isLoading = false
@@ -565,11 +566,20 @@ struct DetailView: View {
         guard let id = topicId else { return }
         topicLoadErrorMessage = nil
         do {
-            let response = try await V2exAPI.shared.topic(topicId: id)
-            if let r = response, r.success, let newTopic = r.result {
-                topic = newTopic
+            if userManager.token != nil {
+                let response = try await V2exAPI.shared.topic(topicId: id)
+                if let r = response, r.success, let newTopic = r.result {
+                    topic = newTopic
+                } else {
+                    topicLoadErrorMessage = response?.message ?? "无法加载该主题"
+                }
             } else {
-                topicLoadErrorMessage = response?.message ?? "无法加载该主题"
+                let response = try await V2exAPI.shared.topicV1(topicId: id)
+                if let newTopic = response?.first {
+                    topic = newTopic
+                } else {
+                    topicLoadErrorMessage = "无法加载该主题"
+                }
             }
         } catch {
             print("❌ 获取 Topic 失败: \(error)")
