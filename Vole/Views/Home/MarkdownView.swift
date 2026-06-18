@@ -31,22 +31,14 @@ struct VoleMarkdownView: View {
     var body: some View {
         let (md, mentions) = makeMarkdown(content)
         let imageURLs = MarkdownImageCollector.imageURLs(in: md)
+        let renderer = TappableMarkdownImageRenderer(
+            imageURLs: imageURLs,
+            openImagePreview: openImagePreview
+        )
 
         MarkdownView(md)
-            .markdownImageRenderer(
-                TappableMarkdownImageRenderer(
-                    imageURLs: imageURLs,
-                    openImagePreview: openImagePreview
-                ),
-                forURLScheme: "http"
-            )
-            .markdownImageRenderer(
-                TappableMarkdownImageRenderer(
-                    imageURLs: imageURLs,
-                    openImagePreview: openImagePreview
-                ),
-                forURLScheme: "https"
-            )
+            .markdownImageRenderer(renderer, forURLScheme: "http")
+            .markdownImageRenderer(renderer, forURLScheme: "https")
             .markdownTableStyle(HorizontalScrollableMarkdownTableStyle())
             .textSelection(.enabled)
             .overlay(alignment: .center) {
@@ -57,43 +49,32 @@ struct VoleMarkdownView: View {
                 }
             }
             .quickLookPreview($selectedQuickLookURL, in: quickLookURLs)
-            // 把 mention 列表回调给外部
             .task(id: content) { @MainActor in
                 onMentionsChanged?(mentions)
             }
-            // 统一拦截链接事件
-            .environment(
-                \.openURL,
-                OpenURLAction { url in
-                    if url.scheme == "mention" {
-                        let name = url.host ?? url.lastPathComponent
-                        onLinkAction?(.mention(username: name))
-                        return .handled
-                    }
-
-                    // 匹配 V2EX 帖子链接
-                    let host = url.host?.lowercased()
-                    if host == "v2ex.com" || host == "www.v2ex.com" {
-                        let components = url.pathComponents
-                        if components.count >= 3, components[1] == "t",
-                            let topicId = Int(components[2])
-                        {
-                            onLinkAction?(.topic(id: topicId))
-                            return .handled
-                        }
-                    }
-
-                    // 统一用全局打开逻辑
-                    if UIApplication.shared.canOpenURL(url) {
-                        UIApplication.shared.open(url)
-                    }
-                    return .handled
-                }
-            )
+            .environment(\.openURL, OpenURLAction(handler: handleOpenURL))
     }
 
     private func makeMarkdown(_ content: String) -> (String, [String]) {
         MarkdownContentFormatter().format(content)
+    }
+
+    private func handleOpenURL(_ url: URL) -> OpenURLAction.Result {
+        if url.scheme == "mention" {
+            let name = url.host ?? url.lastPathComponent
+            onLinkAction?(.mention(username: name))
+            return .handled
+        }
+
+        if let topicId = url.v2exTopicID {
+            onLinkAction?(.topic(id: topicId))
+            return .handled
+        }
+
+        if UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url)
+        }
+        return .handled
     }
 
     @MainActor
@@ -190,56 +171,80 @@ private struct TappableMarkdownImage: View {
         GeometryReader { proxy in
             let size = displaySize(maxWidth: proxy.size.width)
 
-            Group {
-                if url.isGIF {
-                    KFAnimatedImage(url)
-                        .configure { view in
-                            view.autoPlayAnimatedImage = true
-                            view.repeatCount = .infinite
-                            view.framePreloadCount = 3
-                            view.needsPrescaling = false
-                            view.contentMode = .scaleAspectFit
-                        }
-                        .placeholder {
-                            ProgressView()
-                                .frame(width: 44, height: 44)
-                        }
-                        .onSuccess { result in
-                            previewImage = result.image
-                            if imageSize == nil {
-                                imageSize = result.image.size
-                            }
-                        }
-                } else {
-                    KFImage(url)
-                        .placeholder {
-                            ProgressView()
-                                .frame(width: 44, height: 44)
-                        }
-                        .onSuccess { result in
-                            previewImage = result.image
-                            imageSize = result.image.size
-                        }
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
+            renderedImage
+                .frame(
+                    width: size.width,
+                    height: size.height,
+                    alignment: .leading
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    openImagePreview(url, previewImage, imageURLs)
                 }
-            }
-            .frame(
-                width: size.width,
-                height: size.height,
-                alignment: .leading
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .contentShape(Rectangle())
-            .onTapGesture {
-                openImagePreview(url, previewImage, imageURLs)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: size.height, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: size.height, alignment: .leading)
         }
         .frame(height: displaySize(maxWidth: UIScreen.main.bounds.width).height)
         .task(id: url) {
             await loadImageSizeIfNeeded()
+        }
+    }
+
+    @ViewBuilder
+    private var renderedImage: some View {
+        if url.isGIF {
+            animatedImage
+        } else {
+            staticImage
+        }
+    }
+
+    private var animatedImage: some View {
+        KFAnimatedImage(url)
+            .configure { view in
+                view.autoPlayAnimatedImage = true
+                view.repeatCount = .infinite
+                view.framePreloadCount = 3
+                view.needsPrescaling = false
+                view.contentMode = .scaleAspectFit
+            }
+            .placeholder {
+                imagePlaceholder
+            }
+            .onSuccess { result in
+                handleImageLoaded(result.image, preserveExistingSize: true)
+            }
+    }
+
+    private var staticImage: some View {
+        KFImage(url)
+            .placeholder {
+                imagePlaceholder
+            }
+            .onSuccess { result in
+                handleImageLoaded(result.image, preserveExistingSize: false)
+            }
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+    }
+
+    private var imagePlaceholder: some View {
+        ProgressView()
+            .frame(width: 44, height: 44)
+    }
+
+    private func handleImageLoaded(
+        _ image: KFCrossPlatformImage,
+        preserveExistingSize: Bool
+    ) {
+        previewImage = image
+        if preserveExistingSize {
+            if imageSize == nil {
+                imageSize = image.size
+            }
+        } else {
+            imageSize = image.size
         }
     }
 
@@ -336,9 +341,7 @@ private enum MarkdownQuickLookImageExporter {
     }
 
     private static func retrieveOriginalData(for url: URL) async throws -> Data {
-        let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad)
-        let (data, _) = try await URLSession.shared.data(for: request)
-        return data
+        try await MarkdownImageDataLoader.data(for: url)
     }
 
     private static func previewFileURL(for url: URL, format: ImageExportFormat) -> URL {
@@ -358,8 +361,7 @@ private enum MarkdownQuickLookImageExporter {
 
 private enum MarkdownImageMetadata {
     static func imageSize(for url: URL) async throws -> CGSize {
-        let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad)
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let data = try await MarkdownImageDataLoader.data(for: url)
 
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
@@ -371,6 +373,14 @@ private enum MarkdownImageMetadata {
         }
 
         return CGSize(width: width, height: height)
+    }
+}
+
+private enum MarkdownImageDataLoader {
+    static func data(for url: URL) async throws -> Data {
+        let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return data
     }
 }
 
@@ -472,6 +482,20 @@ private extension URL {
         return pathExtension.lowercased() == "gif"
             || normalized.contains(".gif?")
             || normalized.hasSuffix(".gif")
+    }
+
+    var v2exTopicID: Int? {
+        let host = host?.lowercased()
+        guard host == "v2ex.com" || host == "www.v2ex.com" else {
+            return nil
+        }
+
+        let components = pathComponents
+        guard components.count >= 3, components[1] == "t" else {
+            return nil
+        }
+
+        return Int(components[2])
     }
 }
 
