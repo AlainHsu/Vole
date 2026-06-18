@@ -6,10 +6,12 @@
 //
 
 import Foundation
+import ImageIO
 import Kingfisher
 import MarkdownView
 import QuickLook
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum LinkAction {
     case mention(username: String)
@@ -161,33 +163,67 @@ private struct TappableMarkdownImage: View {
     var openImagePreview: @MainActor (URL, KFCrossPlatformImage?, [URL]) -> Void
     @State private var imageSize: CGSize?
     @State private var previewImage: KFCrossPlatformImage?
-    @State private var availableWidth: CGFloat = 0
 
-    private var displaySize: CGSize {
-        guard let imageSize, imageSize.width > 0 else {
-            return CGSize(width: 44, height: 44)
+    private func displaySize(maxWidth: CGFloat) -> CGSize {
+        let resolvedSize = resolvedImageSize
+        guard resolvedSize.width > 0 else {
+            let fallbackWidth = maxWidth > 0 ? maxWidth : 160
+            return CGSize(width: fallbackWidth, height: fallbackWidth * 0.75)
         }
 
-        let maxWidth = availableWidth > 0 ? availableWidth : imageSize.width
-        let width = min(imageSize.width, maxWidth)
-        let height = imageSize.height * width / imageSize.width
+        let width = min(resolvedSize.width, maxWidth > 0 ? maxWidth : resolvedSize.width)
+        let height = resolvedSize.height * width / resolvedSize.width
         return CGSize(width: width, height: height)
     }
 
-    var body: some View {
-        let size = displaySize
+    private var resolvedImageSize: CGSize {
+        if let imageSize, imageSize.width > 0, imageSize.height > 0 {
+            return imageSize
+        }
+        if let previewImage, previewImage.size.width > 0, previewImage.size.height > 0 {
+            return previewImage.size
+        }
+        return .zero
+    }
 
-        KFImage(url)
-            .placeholder {
-                ProgressView()
-                    .frame(width: 44, height: 44)
+    var body: some View {
+        GeometryReader { proxy in
+            let size = displaySize(maxWidth: proxy.size.width)
+
+            Group {
+                if url.isGIF {
+                    KFAnimatedImage(url)
+                        .configure { view in
+                            view.autoPlayAnimatedImage = true
+                            view.repeatCount = .infinite
+                            view.framePreloadCount = 3
+                            view.needsPrescaling = false
+                            view.contentMode = .scaleAspectFit
+                        }
+                        .placeholder {
+                            ProgressView()
+                                .frame(width: 44, height: 44)
+                        }
+                        .onSuccess { result in
+                            previewImage = result.image
+                            if imageSize == nil {
+                                imageSize = result.image.size
+                            }
+                        }
+                } else {
+                    KFImage(url)
+                        .placeholder {
+                            ProgressView()
+                                .frame(width: 44, height: 44)
+                        }
+                        .onSuccess { result in
+                            previewImage = result.image
+                            imageSize = result.image.size
+                        }
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                }
             }
-            .onSuccess { result in
-                previewImage = result.image
-                imageSize = result.image.size
-            }
-            .resizable()
-            .aspectRatio(contentMode: .fit)
             .frame(
                 width: size.width,
                 height: size.height,
@@ -200,17 +236,20 @@ private struct TappableMarkdownImage: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: size.height, alignment: .leading)
-            .background {
-                GeometryReader { proxy in
-                    Color.clear
-                        .onAppear {
-                            availableWidth = proxy.size.width
-                        }
-                        .onChange(of: proxy.size.width) { _, width in
-                            availableWidth = width
-                        }
-                }
-            }
+        }
+        .frame(height: displaySize(maxWidth: UIScreen.main.bounds.width).height)
+        .task(id: url) {
+            await loadImageSizeIfNeeded()
+        }
+    }
+
+    @MainActor
+    private func loadImageSizeIfNeeded() async {
+        guard imageSize == nil else { return }
+        guard let size = try? await MarkdownImageMetadata.imageSize(for: url) else {
+            return
+        }
+        imageSize = size
     }
 }
 
@@ -261,9 +300,16 @@ private enum MarkdownQuickLookImageExporter {
         for url: URL,
         image: KFCrossPlatformImage?
     ) async throws -> URL {
-        let fileURL = previewFileURL(for: url)
+        let sourceData = try await retrieveOriginalData(for: url)
+        let exportFormat = ImageExportFormat.infer(from: sourceData, url: url)
+        let fileURL = previewFileURL(for: url, format: exportFormat)
 
         if FileManager.default.fileExists(atPath: fileURL.path) {
+            return fileURL
+        }
+
+        if exportFormat.preservesAnimation {
+            try sourceData.write(to: fileURL, options: .atomic)
             return fileURL
         }
 
@@ -274,7 +320,7 @@ private enum MarkdownQuickLookImageExporter {
             exportImage = try await retrieveImage(for: url)
         }
 
-        guard let data = exportImage.kf.pngRepresentation() else {
+        guard let data = exportFormat.data(from: exportImage) else {
             throw CocoaError(.fileWriteUnknown)
         }
 
@@ -289,7 +335,13 @@ private enum MarkdownQuickLookImageExporter {
             .image
     }
 
-    private static func previewFileURL(for url: URL) -> URL {
+    private static func retrieveOriginalData(for url: URL) async throws -> Data {
+        let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return data
+    }
+
+    private static func previewFileURL(for url: URL, format: ImageExportFormat) -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VoleMarkdownQuickLookImages", isDirectory: true)
 
@@ -300,7 +352,108 @@ private enum MarkdownQuickLookImageExporter {
 
         return directory
             .appendingPathComponent(url.absoluteString.stableFileName)
-            .appendingPathExtension("png")
+            .appendingPathExtension(format.fileExtension)
+    }
+}
+
+private enum MarkdownImageMetadata {
+    static func imageSize(for url: URL) async throws -> CGSize {
+        let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad)
+        let (data, _) = try await URLSession.shared.data(for: request)
+
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? CGFloat,
+              let height = properties[kCGImagePropertyPixelHeight] as? CGFloat,
+              width > 0,
+              height > 0 else {
+            throw CocoaError(.fileReadCorruptFile)
+        }
+
+        return CGSize(width: width, height: height)
+    }
+}
+
+private enum ImageExportFormat {
+    case gif
+    case png
+    case jpeg
+    case webp
+    case bmp
+    case tiff
+
+    var fileExtension: String {
+        switch self {
+        case .gif: return "gif"
+        case .png: return "png"
+        case .jpeg: return "jpg"
+        case .webp: return "webp"
+        case .bmp: return "bmp"
+        case .tiff: return "tiff"
+        }
+    }
+
+    var preservesAnimation: Bool {
+        switch self {
+        case .gif, .webp:
+            return true
+        default:
+            return false
+        }
+    }
+
+    func data(from image: KFCrossPlatformImage) -> Data? {
+        switch self {
+        case .gif:
+            return image.kf.gifRepresentation()
+        case .png:
+            return image.kf.pngRepresentation()
+        case .jpeg:
+            return image.kf.jpegRepresentation(compressionQuality: 1.0)
+        case .webp:
+            return image.kf.pngRepresentation()
+        case .bmp, .tiff:
+            return image.kf.pngRepresentation()
+        }
+    }
+
+    static func infer(from data: Data, url: URL) -> ImageExportFormat {
+        if let source = CGImageSourceCreateWithData(data as CFData, nil),
+           let type = CGImageSourceGetType(source) {
+            if let utType = UTType(type as String) {
+                switch utType {
+                case .gif:
+                    return .gif
+                case .png:
+                    return .png
+                case .jpeg:
+                    return .jpeg
+                case .webP:
+                    return .webp
+                case .bmp:
+                    return .bmp
+                case .tiff:
+                    return .tiff
+                default:
+                    break
+                }
+            }
+        }
+
+        switch url.pathExtension.lowercased() {
+        case "gif":
+            return .gif
+        case "jpg", "jpeg":
+            return .jpeg
+        case "webp":
+            return .webp
+        case "bmp":
+            return .bmp
+        case "tif", "tiff":
+            return .tiff
+        default:
+            return .png
+        }
     }
 }
 
@@ -310,6 +463,15 @@ private extension String {
             ((result << 5) &+ result) &+ UInt64(scalar.value)
         }
         return String(format: "%016llx", hash)
+    }
+}
+
+private extension URL {
+    var isGIF: Bool {
+        let normalized = absoluteString.lowercased()
+        return pathExtension.lowercased() == "gif"
+            || normalized.contains(".gif?")
+            || normalized.hasSuffix(".gif")
     }
 }
 
