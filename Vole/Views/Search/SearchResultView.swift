@@ -10,6 +10,12 @@ import SwiftUI
 struct SearchResultView: View {
     let query: String
 
+    private enum SearchLoadState {
+        case idle
+        case loading
+        case loaded
+    }
+
     enum SearchCategory: String, CaseIterable, Identifiable {
         case topic = "话题"
         case node = "节点"
@@ -20,12 +26,14 @@ struct SearchResultView: View {
 
     @State private var selectedCategory: SearchCategory = .topic
     @State private var results: [SoV2exHit] = []
-    @State private var isLoading = false
+    @State private var topicLoadState: SearchLoadState = .idle
     @State private var pagingState = SearchPagingState()
     @State private var isPagingLoading = false
 
     @State private var nodes: [Node] = []
+    @State private var nodeLoadState: SearchLoadState = .idle
     @State private var users: [Member] = []
+    @State private var userLoadState: SearchLoadState = .idle
 
     @ObservedObject private var nodeManager = NodeManager.shared
     @ObservedObject private var userManager = UserManager.shared
@@ -39,6 +47,22 @@ struct SearchResultView: View {
         filterOptions != SearchFilterOptions()
     }
 
+    private var currentLoadState: SearchLoadState {
+        switch selectedCategory {
+        case .topic: return topicLoadState
+        case .node: return nodeLoadState
+        case .user: return userLoadState
+        }
+    }
+
+    private var isLoading: Bool {
+        currentLoadState == .loading
+    }
+
+    private var shouldShowEmptyState: Bool {
+        currentLoadState == .loaded && isCurrentCategoryEmpty
+    }
+
     var body: some View {
         List {
             Section(header: listHeaderView, footer: footerView) {
@@ -50,7 +74,7 @@ struct SearchResultView: View {
                     }
                     .padding(.vertical, 40)
                     .listRowSeparator(.hidden)
-                } else if isCurrentCategoryEmpty {
+                } else if shouldShowEmptyState {
                     emptyStateView
                         .transition(.opacity)
                 } else {
@@ -77,15 +101,13 @@ struct SearchResultView: View {
             await performSearch()
         }
         .onChange(of: selectedCategory) {
-            withAnimation(.snappy) {
-                isLoading = isCurrentCategoryEmpty
-            }
             Task { await performSearch() }
         }
     }
 
     private func resetTopicData() {
         results = []
+        topicLoadState = .idle
         pagingState = SearchPagingState()
         isPagingLoading = false
     }
@@ -281,12 +303,11 @@ struct SearchResultView: View {
 
     private func performSearch() async {
         guard !query.isEmpty else { return }
-        if !isCurrentCategoryEmpty {
+        if currentLoadState != .idle {
             return
         }
-        await MainActor.run {
-            withAnimation(.snappy) { self.isLoading = true }
-        }
+
+        await MainActor.run { setCurrentLoadState(.loading) }
 
         switch selectedCategory {
         case .topic:
@@ -295,9 +316,6 @@ struct SearchResultView: View {
             await performNodeSearch()
         case .user:
             await performUserSearch()
-        }
-        await MainActor.run {
-            withAnimation(.snappy) { self.isLoading = false }
         }
     }
 
@@ -311,10 +329,10 @@ struct SearchResultView: View {
                 self.pagingState.totalResults = res.total
                 self.results = res.hits
                 self.pagingState.currentOffset = res.hits.count
-                self.isLoading = false
+                self.topicLoadState = .loaded
             }
         } catch {
-            await MainActor.run { self.isLoading = false }
+            await MainActor.run { self.topicLoadState = .loaded }
         }
     }
 
@@ -322,6 +340,7 @@ struct SearchResultView: View {
         let list = await nodeManager.search(name: query)
         await MainActor.run {
             self.nodes = list
+            self.nodeLoadState = .loaded
         }
     }
 
@@ -329,6 +348,7 @@ struct SearchResultView: View {
         let members = await userManager.search(name: query)
         await MainActor.run {
             self.users = members
+            self.userLoadState = .loaded
         }
     }
 
@@ -388,6 +408,18 @@ struct SearchResultView: View {
         }
 
         return req
+    }
+
+    @MainActor
+    private func setCurrentLoadState(_ state: SearchLoadState) {
+        switch selectedCategory {
+        case .topic:
+            topicLoadState = state
+        case .node:
+            nodeLoadState = state
+        case .user:
+            userLoadState = state
+        }
     }
 }
 
