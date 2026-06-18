@@ -118,19 +118,11 @@ struct NodeDetailView: View {
                         }
                     }
                 }
-                .task {
-                    if userManager.token != nil {
-                        await loadTopics(name: node.name, page: 1)
-                    } else {
-                        await loadTopicsV1(name: node.name)
-                    }
+                .task(id: node.name) {
+                    await loadTopicsIfNeeded(for: node.name)
                 }
                 .refreshable {
-                    if userManager.token != nil {
-                        await loadTopics(name: node.name, page: 1)
-                    } else {
-                        await loadTopicsV1(name: node.name)
-                    }
+                    await reloadTopics(for: node.name)
                 }
             } else if let nodeName {
                 // 还没有加载到 topic
@@ -220,6 +212,19 @@ struct NodeDetailView: View {
         }
     }
 
+    func loadTopicsIfNeeded(for name: String) async {
+        guard topics.isEmpty else { return }
+        await reloadTopics(for: name)
+    }
+
+    func reloadTopics(for name: String) async {
+        if userManager.token != nil {
+            await loadTopics(name: name, page: 1)
+        } else {
+            await loadTopicsV1(name: name)
+        }
+    }
+
     // 分页加载话题V1
     func loadTopicsV1(name: String) async {
         guard !isTopicLoading else { return }
@@ -233,6 +238,8 @@ struct NodeDetailView: View {
             if let t = response {
                 await MainActor.run {
                     self.topics = t
+                    self.pagination = nil
+                    self.currentPage = 1
                 }
             }
         } catch {
