@@ -121,7 +121,6 @@ struct VoleMarkdownView: View {
     @MainActor
     private func openImagePreview(
         url: URL,
-        image _: KFCrossPlatformImage?,
         imageURLs: [URL]
     ) {
         var urls = imageURLs.isEmpty ? [url] : imageURLs
@@ -537,7 +536,7 @@ private enum MarkdownLinkPreviewLoader {
 
 private struct TappableMarkdownImageRenderer: MarkdownImageRenderer {
     let imageURLs: [URL]
-    var openImagePreview: @MainActor (URL, KFCrossPlatformImage?, [URL]) -> Void
+    var openImagePreview: @MainActor (URL, [URL]) -> Void
 
     func makeBody(configuration: Configuration) -> some View {
         TappableMarkdownImage(
@@ -551,30 +550,31 @@ private struct TappableMarkdownImageRenderer: MarkdownImageRenderer {
 private struct TappableMarkdownImage: View {
     let url: URL
     let imageURLs: [URL]
-    var openImagePreview: @MainActor (URL, KFCrossPlatformImage?, [URL]) -> Void
+    var openImagePreview: @MainActor (URL, [URL]) -> Void
     @State private var imageSize: CGSize?
-    @State private var previewImage: KFCrossPlatformImage?
 
-    private func displaySize(maxWidth: CGFloat) -> CGSize {
-        let resolvedSize = resolvedImageSize
-        guard resolvedSize.width > 0 else {
-            let fallbackWidth = maxWidth > 0 ? maxWidth : 160
-            return CGSize(width: fallbackWidth, height: fallbackWidth * 0.75)
-        }
-
-        let width = min(resolvedSize.width, maxWidth > 0 ? maxWidth : resolvedSize.width)
-        let height = resolvedSize.height * width / resolvedSize.width
-        return CGSize(width: width, height: height)
+    init(
+        url: URL,
+        imageURLs: [URL],
+        openImagePreview: @escaping @MainActor (URL, [URL]) -> Void
+    ) {
+        self.url = url
+        self.imageURLs = imageURLs
+        self.openImagePreview = openImagePreview
+        _imageSize = State(
+            initialValue: MarkdownImageMetadata.cachedSize(for: url)
+        )
     }
 
-    private var resolvedImageSize: CGSize {
-        if let imageSize, imageSize.width > 0, imageSize.height > 0 {
-            return imageSize
+    private func displaySize(maxWidth: CGFloat) -> CGSize {
+        guard let imageSize else {
+            let fallbackSide = min(maxWidth > 0 ? maxWidth : 44, 44)
+            return CGSize(width: fallbackSide, height: fallbackSide)
         }
-        if let previewImage, previewImage.size.width > 0, previewImage.size.height > 0 {
-            return previewImage.size
-        }
-        return .zero
+
+        let width = min(imageSize.width, maxWidth > 0 ? maxWidth : imageSize.width)
+        let height = imageSize.height * width / imageSize.width
+        return CGSize(width: width, height: height)
     }
 
     var body: some View {
@@ -590,7 +590,7 @@ private struct TappableMarkdownImage: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    openImagePreview(url, previewImage, imageURLs)
+                    openImagePreview(url, imageURLs)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: size.height, alignment: .leading)
@@ -648,12 +648,8 @@ private struct TappableMarkdownImage: View {
         _ image: KFCrossPlatformImage,
         preserveExistingSize: Bool
     ) {
-        previewImage = image
-        if preserveExistingSize {
-            if imageSize == nil {
-                imageSize = image.size
-            }
-        } else {
+        MarkdownImageMetadata.store(image.size, for: url)
+        if imageSize == nil || !preserveExistingSize {
             imageSize = image.size
         }
     }
@@ -689,7 +685,33 @@ private struct HorizontalScrollableMarkdownTableStyle: MarkdownTableStyle {
 }
 
 private enum MarkdownImageMetadata {
+    private static let sizeCache = NSCache<NSURL, NSValue>()
+
+    static func cachedSize(for url: URL) -> CGSize? {
+        if let size = sizeCache.object(forKey: url as NSURL)?.cgSizeValue {
+            return size
+        }
+
+        guard let size = ImageCache.default
+            .retrieveImageInMemoryCache(forKey: url.cacheKey)?
+            .size else {
+            return nil
+        }
+
+        store(size, for: url)
+        return size
+    }
+
+    static func store(_ size: CGSize, for url: URL) {
+        guard size.width > 0, size.height > 0 else { return }
+        sizeCache.setObject(NSValue(cgSize: size), forKey: url as NSURL)
+    }
+
     static func imageSize(for url: URL) async throws -> CGSize {
+        if let size = cachedSize(for: url) {
+            return size
+        }
+
         let data = try await MarkdownImageDataLoader.data(for: url)
 
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -701,7 +723,9 @@ private enum MarkdownImageMetadata {
             throw CocoaError(.fileReadCorruptFile)
         }
 
-        return CGSize(width: width, height: height)
+        let size = CGSize(width: width, height: height)
+        store(size, for: url)
+        return size
     }
 }
 
