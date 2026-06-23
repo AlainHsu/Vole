@@ -145,26 +145,23 @@ struct DetailView: View {
                                     showSafari = true
                                 }
                             } label: {
-                                HStack {
-                                    Text(title)
-                                        .font(.title)
-                                        .bold()
-                                        .foregroundColor(.primary)
-                                        .multilineTextAlignment(.leading)
-                                        .fixedSize(
-                                            horizontal: false,
-                                            vertical: true
-                                        )
-
-                                    Spacer(minLength: 0)
-                                }
-                                .frame(
-                                    maxWidth: .infinity,
-                                    alignment: .leading
-                                )
-                                .contentShape(Rectangle())
+                                Text(title)
+                                    .font(.title)
+                                    .bold()
+                                    .foregroundColor(.primary)
+                                    .multilineTextAlignment(.leading)
+                                    .fixedSize(
+                                        horizontal: false,
+                                        vertical: true
+                                    )
+                                    .frame(
+                                        maxWidth: .infinity,
+                                        alignment: .leading
+                                    )
+                                    .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         // 内容
                         if let content = topic.content, !content.isEmpty {
