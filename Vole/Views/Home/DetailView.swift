@@ -9,8 +9,6 @@ import Kingfisher
 import SwiftUI
 
 struct DetailView: View {
-    @Namespace private var ns
-
     let topicId: Int?
     @State var topic: Topic?
 
@@ -278,11 +276,6 @@ struct DetailView: View {
                                         reply: reply,
                                         floor: index
                                     )
-                                    .matchedGeometryEffect(
-                                        id: reply.id,
-                                        in: ns,
-                                        isSource: selectedReply == nil
-                                    )
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         withAnimation(
@@ -495,17 +488,13 @@ struct DetailView: View {
                             reply: r,
                             floor: floor
                         )
-                        .matchedGeometryEffect(
-                            id: r.id,
-                            in: ns,
-                            isSource: selectedReply != nil
-                        )
                         .padding()
                         Divider()
                     }
                 }
                 .padding()
             }
+            .contentShape(Rectangle())
             .onTapGesture {
                 withAnimation(.spring(dampingFraction: 0.6)) {
                     selectedReply = nil
