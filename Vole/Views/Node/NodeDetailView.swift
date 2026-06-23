@@ -31,19 +31,7 @@ struct NodeDetailView: View {
                     Section {
                         VStack(spacing: 16) {
                             // 头像
-                            if let avatarURL = node.getHighestQualityAvatar(),
-                                let url = URL(string: avatarURL)
-                            {
-                                KFImage(url)
-                                    .resizable()
-                                    .scaledToFill()
-                                    .frame(width: 100, height: 100)
-                            } else {
-                                Circle()
-                                    .fill(Color.gray.opacity(0.4))
-                                    .frame(width: 100, height: 100)
-                                    .padding(.top, 20)
-                            }
+                            nodeAvatar(node)
 
                             // 名称 + 英文名
                             VStack(spacing: 4) {
@@ -118,6 +106,7 @@ struct NodeDetailView: View {
                         }
                     }
                 }
+                .contentMargins(.top, 0, for: .scrollContent)
                 .task(id: node.name) {
                     await loadTopicsIfNeeded(for: node.name)
                 }
@@ -175,6 +164,41 @@ struct NodeDetailView: View {
                     Image(systemName: "ellipsis.circle")
                 }
             }
+        }
+    }
+
+    private func nodeAvatar(_ node: Node) -> some View {
+        Group {
+            if let avatarURL = node.getHighestQualityAvatar(),
+                let url = URL(string: avatarURL)
+            {
+                KFImage(url)
+                    .placeholder {
+                        nodeAvatarPlaceholder(node)
+                    }
+                    .fade(duration: 0.2)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                nodeAvatarPlaceholder(node)
+            }
+        }
+        .frame(width: 104, height: 104)
+        .background(Color.accentColor.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .stroke(.primary.opacity(0.08), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.1), radius: 10, y: 5)
+    }
+
+    private func nodeAvatarPlaceholder(_ node: Node) -> some View {
+        ZStack {
+            Color.accentColor.opacity(0.08)
+            Text(String((node.title ?? node.name).prefix(1)))
+                .font(.largeTitle.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
         }
     }
 
