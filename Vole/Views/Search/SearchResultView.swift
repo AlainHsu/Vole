@@ -10,10 +10,11 @@ import SwiftUI
 struct SearchResultView: View {
     let query: String
 
-    private enum SearchLoadState {
+    private enum SearchLoadState: Equatable {
         case idle
         case loading
         case loaded
+        case failed(String)
     }
 
     enum SearchCategory: String, CaseIterable, Identifiable {
@@ -29,6 +30,7 @@ struct SearchResultView: View {
     @State private var topicLoadState: SearchLoadState = .idle
     @State private var pagingState = SearchPagingState()
     @State private var isPagingLoading = false
+    @State private var pagingErrorMessage: String?
 
     @State private var nodes: [Node] = []
     @State private var nodeLoadState: SearchLoadState = .idle
@@ -43,10 +45,6 @@ struct SearchResultView: View {
 
     @Binding var path: NavigationPath
 
-    private var isFiltering: Bool {
-        filterOptions != SearchFilterOptions()
-    }
-
     private var currentLoadState: SearchLoadState {
         switch selectedCategory {
         case .topic: return topicLoadState
@@ -56,11 +54,55 @@ struct SearchResultView: View {
     }
 
     private var isLoading: Bool {
-        currentLoadState == .loading
+        if case .loading = currentLoadState {
+            return true
+        }
+        return false
+    }
+
+    private var currentErrorMessage: String? {
+        if case .failed(let message) = currentLoadState {
+            return message
+        }
+        return nil
     }
 
     private var shouldShowEmptyState: Bool {
         currentLoadState == .loaded && isCurrentCategoryEmpty
+    }
+
+    private var shouldShowErrorState: Bool {
+        currentErrorMessage != nil
+    }
+
+    private var activeTopicFilterLabels: [String] {
+        var labels: [String] = []
+
+        if filterOptions.timeRange != .all {
+            labels.append(filterOptions.timeRange.rawValue)
+        }
+
+        let nodeName = filterOptions.nodeName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        if !nodeName.isEmpty {
+            labels.append("节点: \(nodeName)")
+        }
+
+        switch filterOptions.sortType {
+        case .weight:
+            break
+        case .timeDesc:
+            labels.append("排序: 最新")
+        case .timeAsc:
+            labels.append("排序: 最早")
+        }
+
+        return labels
+    }
+
+    private var hasVisibleTopicFilters: Bool {
+        !activeTopicFilterLabels.isEmpty
     }
 
     var body: some View {
@@ -74,6 +116,8 @@ struct SearchResultView: View {
                     }
                     .padding(.vertical, 40)
                     .listRowSeparator(.hidden)
+                } else if shouldShowErrorState {
+                    errorStateView
                 } else if shouldShowEmptyState {
                     emptyStateView
                         .transition(.opacity)
@@ -111,6 +155,7 @@ struct SearchResultView: View {
         topicLoadState = .idle
         pagingState = SearchPagingState()
         isPagingLoading = false
+        pagingErrorMessage = nil
     }
 
     @ViewBuilder
@@ -164,8 +209,16 @@ struct SearchResultView: View {
             HStack {
                 switch selectedCategory {
                 case .topic:
-                    if !results.isEmpty {
-                        Text("共 \(results.count) 条结果")
+                    if let total = pagingState.totalResults {
+                        Text(
+                            total == results.count
+                                ? "共 \(total) 条结果"
+                                : "共 \(total) 条结果，已展示 \(results.count) 条"
+                        )
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
+                    } else if !results.isEmpty {
+                        Text("已展示 \(results.count) 条结果")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
@@ -192,10 +245,29 @@ struct SearchResultView: View {
                         HStack(spacing: 4) {
                             Text("筛选")
                             Image(
-                                systemName: isFiltering
+                                systemName: hasVisibleTopicFilters
                                     ? "line.3.horizontal.decrease.circle.fill"
                                     : "line.3.horizontal.decrease.circle"
                             )
+                        }
+                    }
+                }
+            }
+
+            if selectedCategory == .topic && hasVisibleTopicFilters {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(activeTopicFilterLabels, id: \.self) { label in
+                            Text(label)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Capsule().fill(
+                                        Color.secondary.opacity(0.12)
+                                    )
+                                )
                         }
                     }
                 }
@@ -219,11 +291,19 @@ struct SearchResultView: View {
                     Spacer()
                 }
                 .padding(.vertical, 12)
+            } else if let pagingErrorMessage, !results.isEmpty {
+                VStack(spacing: 8) {
+                    footerText(pagingErrorMessage)
+                    Button("重试加载更多") {
+                        Task { await loadNextPage() }
+                    }
+                    .font(.footnote)
+                }
             } else if let total = pagingState.totalResults, !results.isEmpty {
                 if results.count >= total {
                     footerText("已加载全部 \(results.count) 条结果")
                 } else {
-                    footerText("上滑加载更多 (已展示 \(results.count) 条)")
+                    footerText("上滑加载更多 (共 \(total) 条，已展示 \(results.count) 条)")
                 }
             }
         }
@@ -259,7 +339,7 @@ struct SearchResultView: View {
                     .multilineTextAlignment(.center)
             }
 
-            if selectedCategory == .topic && isFiltering {
+            if selectedCategory == .topic && hasVisibleTopicFilters {
                 VStack(spacing: 12) {
                     Button(action: {
                         isFilterPresented = true
@@ -288,7 +368,7 @@ struct SearchResultView: View {
         switch selectedCategory {
         case .topic: return "没有找到相关话题"
         case .node: return "没有找到匹配的节点"
-        case .user: return "该用户不存在"
+        case .user: return "没有找到匹配的用户"
         }
     }
 
@@ -296,9 +376,53 @@ struct SearchResultView: View {
         "尝试更换关键词，或者确认\n拼写是否正确"
     }
 
+    private var errorStateView: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "wifi.exclamationmark")
+                .font(.system(size: 44, weight: .light))
+                .foregroundStyle(.quaternary)
+                .padding(.top, 60)
+
+            VStack(spacing: 8) {
+                Text("搜索失败")
+                    .font(.headline)
+                    .foregroundColor(.primary)
+
+                Text(currentErrorMessage ?? "请稍后重试")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            Button("重新搜索") {
+                retryCurrentSearch()
+            }
+            .fontWeight(.medium)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, 60)
+        .listRowSeparator(.hidden)
+        .listRowBackground(Color.clear)
+    }
+
     private func resetFilters() {
         filterOptions = SearchFilterOptions()
         resetTopicData()
+        Task { await performSearch() }
+    }
+
+    private func retryCurrentSearch() {
+        switch selectedCategory {
+        case .topic:
+            resetTopicData()
+        case .node:
+            nodes = []
+            nodeLoadState = .idle
+        case .user:
+            users = []
+            userLoadState = .idle
+        }
+
         Task { await performSearch() }
     }
 
@@ -327,29 +451,44 @@ struct SearchResultView: View {
             if Task.isCancelled { return }
 
             await MainActor.run {
+                self.pagingErrorMessage = nil
                 self.pagingState.totalResults = res.total
                 self.results = res.hits
                 self.pagingState.currentOffset = res.hits.count
                 self.topicLoadState = .loaded
             }
         } catch {
-            await MainActor.run { self.topicLoadState = .loaded }
+            await MainActor.run {
+                self.topicLoadState = .failed("话题搜索请求失败，请检查网络后重试")
+            }
         }
     }
 
     private func performNodeSearch() async {
-        let list = await nodeManager.search(name: query)
-        await MainActor.run {
-            self.nodes = list
-            self.nodeLoadState = .loaded
+        do {
+            let list = try await nodeManager.search(name: query)
+            await MainActor.run {
+                self.nodes = list
+                self.nodeLoadState = .loaded
+            }
+        } catch {
+            await MainActor.run {
+                self.nodeLoadState = .failed("节点搜索失败，请检查网络后重试")
+            }
         }
     }
 
     private func performUserSearch() async {
-        let members = await userManager.search(name: query)
-        await MainActor.run {
-            self.users = members
-            self.userLoadState = .loaded
+        do {
+            let members = try await userManager.search(name: query)
+            await MainActor.run {
+                self.users = members
+                self.userLoadState = .loaded
+            }
+        } catch {
+            await MainActor.run {
+                self.userLoadState = .failed("用户搜索失败，请检查网络后重试")
+            }
         }
     }
 
@@ -369,12 +508,16 @@ struct SearchResultView: View {
             if Task.isCancelled { return }
 
             await MainActor.run {
+                self.pagingErrorMessage = nil
                 self.results.append(contentsOf: res.hits)
                 self.pagingState.currentOffset = self.results.count
                 self.isPagingLoading = false
             }
         } catch {
-            await MainActor.run { self.isPagingLoading = false }
+            await MainActor.run {
+                self.isPagingLoading = false
+                self.pagingErrorMessage = "加载更多失败，请稍后重试"
+            }
         }
     }
 

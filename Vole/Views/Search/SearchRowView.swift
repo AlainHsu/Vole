@@ -5,9 +5,15 @@
 //  Created by 杨权 on 11/24/25.
 //
 
+import SwiftSoup
 import SwiftUI
 
 struct SearchRowView: View {
+    private struct HighlightSegment {
+        let text: String
+        let isHighlighted: Bool
+    }
+
     let result: SoV2exHit
 
     @StateObject private var nodeManager = NodeManager.shared
@@ -23,12 +29,18 @@ struct SearchRowView: View {
             }
 
             // 标题
-            Text(result.source.title)
-                .font(.headline)
+            highlightedText(
+                from: result.highlight?.title?.first,
+                fallback: result.source.title,
+                font: .headline
+            )
 
             // 内容摘要
-            Text(result.source.content)
-                .font(.body)
+            highlightedText(
+                from: highlightSnippet,
+                fallback: result.source.content,
+                font: .body
+            )
                 .lineLimit(2)
                 .foregroundStyle(.secondary)
 
@@ -64,6 +76,115 @@ struct SearchRowView: View {
         }
         .contentShape(Rectangle())
 
+    }
+
+    private var highlightSnippet: String? {
+        result.highlight?.content?.first
+            ?? result.highlight?.postscriptContent?.first
+            ?? result.highlight?.replyContent?.first
+    }
+
+    private func highlightedText(
+        from html: String?,
+        fallback: String,
+        font: Font
+    ) -> Text {
+        let segments = highlightSegments(from: html)
+        guard !segments.isEmpty else {
+            return Text(fallback).font(font)
+        }
+
+        let text = segments.reduce(Text("")) { partial, segment in
+            partial + segmentText(segment)
+        }
+        return text.font(font)
+    }
+
+    private func segmentText(_ segment: HighlightSegment) -> Text {
+        let text = Text(segment.text)
+        if segment.isHighlighted {
+            return text.foregroundColor(.accentColor)
+        }
+        return text
+    }
+
+    private func highlightSegments(from html: String?) -> [HighlightSegment] {
+        guard let html, !html.isEmpty else { return [] }
+
+        do {
+            let document = try SwiftSoup.parseBodyFragment(html)
+            guard let body = document.body() else { return [] }
+
+            var segments: [HighlightSegment] = []
+            for child in body.getChildNodes() {
+                collectHighlightSegments(
+                    from: child,
+                    isHighlighted: false,
+                    segments: &segments
+                )
+            }
+            return segments
+        } catch {
+            let plainText = decodeHTMLText(html)
+            guard !plainText.isEmpty else { return [] }
+            return [HighlightSegment(text: plainText, isHighlighted: false)]
+        }
+    }
+
+    private func collectHighlightSegments(
+        from node: SwiftSoup.Node,
+        isHighlighted: Bool,
+        segments: inout [HighlightSegment]
+    ) {
+        if let textNode = node as? SwiftSoup.TextNode {
+            appendSegment(
+                textNode.getWholeText(),
+                isHighlighted: isHighlighted,
+                segments: &segments
+            )
+            return
+        }
+
+        guard let element = node as? SwiftSoup.Element else { return }
+
+        let childIsHighlighted = isHighlighted || element.tagNameNormal() == "em"
+        for child in element.getChildNodes() {
+            collectHighlightSegments(
+                from: child,
+                isHighlighted: childIsHighlighted,
+                segments: &segments
+            )
+        }
+    }
+
+    private func appendSegment(
+        _ text: String,
+        isHighlighted: Bool,
+        segments: inout [HighlightSegment]
+    ) {
+        guard !text.isEmpty else { return }
+
+        if let last = segments.last, last.isHighlighted == isHighlighted {
+            segments[segments.count - 1] = HighlightSegment(
+                text: last.text + text,
+                isHighlighted: isHighlighted
+            )
+            return
+        }
+
+        segments.append(
+            HighlightSegment(text: text, isHighlighted: isHighlighted)
+        )
+    }
+
+    private func decodeHTMLText(_ html: String) -> String {
+        guard !html.isEmpty else { return "" }
+
+        do {
+            return try SwiftSoup.parseBodyFragment(html).text()
+        } catch {
+            return html
+        }
     }
 }
 

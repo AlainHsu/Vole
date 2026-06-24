@@ -47,18 +47,13 @@ class NodeManager: ObservableObject {
     }
 
     // 模糊搜索
-    func search(name: String) async -> [Node] {
+    func search(name: String) async throws -> [Node] {
         guard !name.isEmpty else { return [] }
         let keyword = name.lowercased()
-        do {
-            let list = try await V2exAPI.shared.nodesList() ?? []
-            return list.filter { node in
-                node.name.lowercased().contains(keyword)
+        let list = try await V2exAPI.shared.nodesList() ?? []
+        return list.filter { node in
+            node.name.lowercased().contains(keyword)
                 || (node.title?.lowercased().contains(keyword) ?? false)
-            }
-        } catch {
-            print("❌ 加载节点失败:", error)
-            return []
         }
     }
 
