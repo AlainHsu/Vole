@@ -25,7 +25,7 @@
   },
   {
     "name": "酷工作",
-    "systemIcon": "apple.logo",
+    "systemIcon": "briefcase.fill",
     "colorHex": "brown",
     "nodeNames": ["jobs", "cv", "career", "meet", "outsourcing", "remote"]
   },

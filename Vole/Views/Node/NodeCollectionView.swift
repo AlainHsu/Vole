@@ -5,6 +5,7 @@
 //  Created by 杨权 on 11/13/25.
 //
 
+import Kingfisher
 import SwiftUI
 
 struct NodeCollectionView: View {
@@ -44,24 +45,18 @@ struct NodeCollectionView: View {
                     HStack(spacing: 12) {
                         ForEach(collection.nodeNames, id: \.self) { nodeName in
                             let node = nodeManager.getNode(nodeName)
-                            Text(node?.title ?? nodeName)
-                                .padding(.vertical, 8)
-                                .padding(.horizontal, 12)
-                                .background(
-                                    Capsule().fill(
-                                        collection.color.opacity(0.5)
-                                    )
-                                )
-                                .onTapGesture {
-                                    if let node {
-                                        path.append(Route.node(node))
-                                    } else {
-                                        path.append(Route.nodeName(nodeName))
-                                    }
-                                }
+
+                            Button {
+                                openNode(node, named: nodeName)
+                            } label: {
+                                nodeCard(node, named: nodeName)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
+                    .padding(.vertical, 4)
                 }
+                .textCase(nil)
             }
         }
         .navigationTitle(collection.name)
@@ -74,6 +69,75 @@ struct NodeCollectionView: View {
         .refreshable {
             await loadTopics()
         }
+    }
+
+    private func openNode(_ node: Node?, named nodeName: String) {
+        if let node {
+            path.append(Route.node(node))
+        } else {
+            path.append(Route.nodeName(nodeName))
+        }
+    }
+
+    private func nodeCard(_ node: Node?, named nodeName: String) -> some View {
+        HStack(spacing: 10) {
+            nodeAvatar(node, named: nodeName)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(node?.title ?? nodeName)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(collection.color.opacity(0.1))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(collection.color.opacity(0.22), lineWidth: 1)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private func nodeAvatar(_ node: Node?, named nodeName: String) -> some View {
+        Group {
+            if let avatarPath = node?.getHighestQualityAvatar(),
+                let url = nodeAvatarURL(from: avatarPath)
+            {
+                KFImage(url)
+                    .placeholder { nodeAvatarPlaceholder(node, named: nodeName) }
+                    .fade(duration: 0.15)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                nodeAvatarPlaceholder(node, named: nodeName)
+            }
+        }
+        .frame(width: 30, height: 30)
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func nodeAvatarPlaceholder(
+        _ node: Node?,
+        named nodeName: String
+    ) -> some View {
+        ZStack {
+            collection.color.opacity(0.16)
+            Text(String((node?.title ?? nodeName).prefix(1)))
+                .font(.caption.weight(.bold))
+                .foregroundStyle(collection.color)
+        }
+    }
+
+    private func nodeAvatarURL(from path: String) -> URL? {
+        if path.hasPrefix("http") {
+            return URL(string: path)
+        }
+        return URL(string: path, relativeTo: URL(string: "https://www.v2ex.com"))
     }
 
     // 并发加载所有节点的 topics
