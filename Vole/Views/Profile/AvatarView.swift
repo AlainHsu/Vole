@@ -15,9 +15,25 @@ struct AvatarView: View {
 
     var body: some View {
         Button(action: action) {
-            ProfileAvatarImage(size: size, userManager: userManager)
+            ZStack(alignment: .topTrailing) {
+                ProfileAvatarImage(size: size, userManager: userManager)
+
+                if userManager.token?.needsRenewalWarning == true {
+                    Image(systemName: "exclamationmark")
+                        .font(.system(size: 9, weight: .black))
+                        .foregroundStyle(.white)
+                        .frame(width: 16, height: 16)
+                        .background(.orange, in: Circle())
+                        .overlay {
+                            Circle()
+                                .stroke(.background, lineWidth: 2)
+                        }
+                        .offset(x: -1, y: 1)
+                }
+            }
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("查看我的信息")
     }
 }
 

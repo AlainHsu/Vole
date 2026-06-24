@@ -34,9 +34,41 @@ class UserManager: ObservableObject {
         return try? JSONDecoder().decode(Member.self, from: data)
     }
 
-    func saveToken(_ token: Token) {
-        if KeychainHelper.shared.save(token: token) {
-            self.token = token
+    @discardableResult
+    func saveToken(_ token: Token) -> Bool {
+        guard KeychainHelper.shared.save(token: token) else { return false }
+        self.token = token
+        return true
+    }
+
+    func refreshTokenDetailsIfNeeded() async {
+        guard let token, token.needsDetails, let value = token.token,
+            let response = try? await V2exAPI.shared.token(token: value),
+            response.success,
+            let details = response.result
+        else {
+            return
+        }
+        _ = saveToken(token.completed(with: details))
+    }
+
+    func renewToken() async throws {
+        let response = try await V2exAPI.shared.createToken(
+            expiration: Token.renewalExpiration,
+            scope: "everything"
+        )
+        guard let response, response.success,
+            let createdToken = response.result,
+            let value = createdToken.token
+        else {
+            throw TokenRenewalError.api(
+                response?.message ?? "无法创建新的 Token"
+            )
+        }
+
+        let details = try? await V2exAPI.shared.token(token: value)?.result
+        guard saveToken(createdToken.completed(with: details)) else {
+            throw TokenRenewalError.keychain
         }
     }
 
@@ -59,6 +91,20 @@ class UserManager: ObservableObject {
         } catch {
             print("❌ 加载用户失败:", error)
             return []
+        }
+    }
+}
+
+private enum TokenRenewalError: LocalizedError {
+    case api(String)
+    case keychain
+
+    var errorDescription: String? {
+        switch self {
+        case .api(let message):
+            return message
+        case .keychain:
+            return "新 Token 已创建，但无法保存到 Keychain"
         }
     }
 }

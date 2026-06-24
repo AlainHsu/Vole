@@ -29,38 +29,34 @@ struct MemberView: View {
                 {
                     // token管理
                     Section {
-                        HStack {
-                            // 续期按钮
-                            NavigationLink(
-                                destination: TokenRenewPage(
-                                    currentToken: token
-                                )
-                            ) {
-                                HStack {
-                                    Label(
-                                        "Token",
-                                        systemImage: "key.viewfinder"
+                        NavigationLink(
+                            destination: TokenRenewPage(currentToken: token)
+                        ) {
+                            HStack {
+                                Label("Token", systemImage: "key.viewfinder")
+                                Spacer()
+                                if token.needsRenewalWarning {
+                                    Image(
+                                        systemName:
+                                            "exclamationmark.circle.fill"
                                     )
-                                    Spacer()
-                                    Text(maskedToken(tokenStr))
-                                        .foregroundColor(.secondary)
-                                        .multilineTextAlignment(
-                                            .trailing
-                                        )
-                                        .contextMenu {
-                                            Button(
-                                                "复制原始 Token",
-                                                systemImage:
-                                                    "document.on.document"
-                                            ) {
-                                                UIPasteboard.general
-                                                    .string = tokenStr
-                                            }
-                                        }
+                                    .foregroundStyle(.orange)
+                                    .accessibilityLabel("Token 即将过期")
                                 }
+                                Text(maskedToken(tokenStr))
+                                    .foregroundStyle(.secondary)
+                                    .contextMenu {
+                                        Button(
+                                            "复制原始 Token",
+                                            systemImage: "document.on.document"
+                                        ) {
+                                            UIPasteboard.general.string =
+                                                tokenStr
+                                        }
+                                    }
                             }
-                            .buttonStyle(.borderless)
                         }
+                        .buttonStyle(.borderless)
                     }
 
                     // 退出登录

@@ -258,8 +258,14 @@ struct TokenInputPage: View {
 }
 
 struct TokenRenewPage: View {
-    let currentToken: Token
-    @State private var newToken: String?
+    private let initialToken: Token
+    @ObservedObject private var userManager: UserManager = .shared
+    @State private var isRenewing = false
+    @State private var activeAlert: TokenAlert?
+
+    init(currentToken: Token) {
+        initialToken = currentToken
+    }
 
     var body: some View {
         List {
@@ -267,79 +273,145 @@ struct TokenRenewPage: View {
                 if let token = currentToken.token {
                     HStack {
                         Text("Token")
-                        Spacer()
+                        Spacer(minLength: 12)
                         Text(token)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.trailing)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                             .contextMenu {
                                 Button(
                                     "复制原始 Token",
-                                    systemImage:
-                                        "document.on.document"
+                                    systemImage: "document.on.document"
                                 ) {
-                                    UIPasteboard.general
-                                        .string = token
+                                    UIPasteboard.general.string = token
                                 }
                             }
                     }
                 }
                 if let created = currentToken.created {
-                    HStack {
-                        Text("创建时间")
-                        Spacer()
-                        Text("\(formatDate(created))")
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.trailing)
-                    }
+                    LabeledContent(
+                        "创建时间",
+                        value: formatDate(created)
+                    )
                 }
                 if let lastUsed = currentToken.lastUsed {
-                    HStack {
-                        Text("上次使用时间")
-                        Spacer()
-                        Text("\(formatDate(lastUsed))")
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.trailing)
-                    }
+                    LabeledContent(
+                        "上次使用时间",
+                        value: formatDate(lastUsed)
+                    )
                 }
                 if let expiration = currentToken.expiration {
-                    HStack {
-                        Text("有效期")
-                        Spacer()
-                        Text("\(expiration/86400) 天")
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.trailing)
+                    LabeledContent(
+                        "有效期",
+                        value: "\(expiration / 86_400) 天"
+                    )
+                }
+                if let remainingDays = currentToken.remainingDays {
+                    LabeledContent("剩余天数") {
+                        Text("\(remainingDays) 天")
+                            .foregroundStyle(
+                                remainingDays <= 0
+                                    ? .red
+                                    : currentToken.needsRenewalWarning
+                                        ? .orange : .secondary
+                            )
+                            .fontWeight(
+                                currentToken.needsRenewalWarning
+                                    ? .semibold : .regular
+                            )
                     }
                 }
-                if let created = currentToken.created,
-                    let expiration = currentToken.expiration
-                {
-                    // 当前时间戳（秒）
-                    let now = Date().timeIntervalSince1970
-                    // 过期时间戳
-                    let expireAt = Double(created) + Double(expiration)
-                    // 剩余秒数（小于 0 时强制为 0）
-                    let remainingSeconds = max(0, expireAt - now)
-                    // 转换成天数（保留 1 位小数）
-                    let remainingDays = remainingSeconds / 86400
+            }
 
+            Section {
+                Button {
+                    activeAlert = .confirmation
+                } label: {
                     HStack {
-                        Text("剩余天数")
                         Spacer()
-                        Text("\(Int(remainingDays.rounded())) 天")
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.trailing)
+                        if isRenewing {
+                            ProgressView()
+                        } else {
+                            Label("续期 Token", systemImage: "arrow.clockwise")
+                                .fontWeight(.semibold)
+                        }
+                        Spacer()
                     }
                 }
+                .disabled(isRenewing)
+            } footer: {
+                Text("将创建一个有效期 180 天、拥有 everything 权限的新 Token，并替换当前设备保存的 Token。")
             }
         }
         .navigationTitle("Token 详情")
         .navigationBarTitleDisplayMode(.inline)
+        .alert(item: $activeAlert) { alert in
+            alert.content(renew: renewToken)
+        }
+        .task {
+            await userManager.refreshTokenDetailsIfNeeded()
+        }
     }
-    //
-    //    func renewToken() {
-    //        // 模拟续期逻辑，这里实际应该调用你的接口
-    //        newToken = currentToken + "_NEW"
-    //    }
+
+    private var currentToken: Token {
+        userManager.token ?? initialToken
+    }
+
+    private func renewToken() {
+        isRenewing = true
+
+        Task {
+            do {
+                try await userManager.renewToken()
+                activeAlert = .success
+            } catch {
+                activeAlert = .failure(error.localizedDescription)
+            }
+            isRenewing = false
+        }
+    }
+}
+
+private enum TokenAlert: Identifiable {
+    case confirmation
+    case success
+    case failure(String)
+
+    var id: String {
+        switch self {
+        case .confirmation: return "confirmation"
+        case .success: return "success"
+        case .failure: return "failure"
+        }
+    }
+
+    func content(renew: @escaping () -> Void) -> Alert {
+        switch self {
+        case .confirmation:
+            return Alert(
+                title: Text("确认续期 Token？"),
+                message: Text("将创建一个有效期 180 天的新 Token，并替换当前设备保存的 Token。"),
+                primaryButton: .destructive(
+                    Text("创建并替换 Token"),
+                    action: renew
+                ),
+                secondaryButton: .cancel()
+            )
+        case .success:
+            return Alert(
+                title: Text("续期成功"),
+                message: Text("新 Token 已保存并立即生效。"),
+                dismissButton: .default(Text("好"))
+            )
+        case .failure(let message):
+            return Alert(
+                title: Text("续期失败"),
+                message: Text(message),
+                dismissButton: .default(Text("好"))
+            )
+        }
+    }
 }
 
 func maskedToken(_ token: String) -> String {

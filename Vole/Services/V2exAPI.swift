@@ -364,7 +364,7 @@ public struct V2exAPI {
     public func createToken(expiration: Int, scope: String? = nil) async throws
         -> Response<Token>?
     {
-        let path = "token"
+        let path = "tokens"
         var args: [String: Any] = ["expiration": expiration]
         if let scope = scope {
             args["scope"] = scope
