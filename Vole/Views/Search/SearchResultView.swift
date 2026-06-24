@@ -41,7 +41,7 @@ struct SearchResultView: View {
     @ObservedObject private var userManager = UserManager.shared
 
     @State private var filterOptions = SearchFilterOptions()
-    @State private var isFilterPresented = false
+    @State private var isNodeFilterPresented = false
 
     @Binding var path: NavigationPath
 
@@ -105,6 +105,25 @@ struct SearchResultView: View {
         !activeTopicFilterLabels.isEmpty
     }
 
+    private var selectedFilterNode: Node? {
+        let nodeName = filterOptions.nodeName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !nodeName.isEmpty else { return nil }
+        return nodeManager.getNode(nodeName)
+    }
+
+    private var topicNodeButtonTitle: String {
+        if let selectedFilterNode {
+            return selectedFilterNode.title ?? selectedFilterNode.name
+        }
+
+        let nodeName = filterOptions.nodeName.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        return nodeName.isEmpty ? "节点" : nodeName
+    }
+
     var body: some View {
         List {
             Section(header: listHeaderView, footer: footerView) {
@@ -127,16 +146,15 @@ struct SearchResultView: View {
             }
         }
         .homeLikeListTopInset()
-        .sheet(isPresented: $isFilterPresented) {
-            SearchFilterSheet(
-                options: $filterOptions,
+        .sheet(isPresented: $isNodeFilterPresented) {
+            SearchNodeFilterSheet(
+                nodeName: $filterOptions.nodeName,
                 onConfirm: {
-                    isFilterPresented = false
-                    resetTopicData()
-                    Task { await performSearch() }
+                    isNodeFilterPresented = false
+                    applyTopicFilters()
                 },
                 onCancel: {
-                    isFilterPresented = false
+                    isNodeFilterPresented = false
                 }
             )
             .presentationDetents([.medium, .large])
@@ -237,44 +255,89 @@ struct SearchResultView: View {
                 }
 
                 Spacer()
-
-                if selectedCategory == .topic {
-                    Button(action: {
-                        isFilterPresented = true
-                    }) {
-                        HStack(spacing: 4) {
-                            Text("筛选")
-                            Image(
-                                systemName: hasVisibleTopicFilters
-                                    ? "line.3.horizontal.decrease.circle.fill"
-                                    : "line.3.horizontal.decrease.circle"
-                            )
-                        }
-                    }
-                }
             }
 
-            if selectedCategory == .topic && hasVisibleTopicFilters {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(activeTopicFilterLabels, id: \.self) { label in
-                            Text(label)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(
-                                    Capsule().fill(
-                                        Color.secondary.opacity(0.12)
-                                    )
-                                )
-                        }
-                    }
-                }
+            if selectedCategory == .topic {
+                topicFilterBar
             }
         }
         .padding(.vertical, 8)
         .textCase(nil)
+    }
+
+    private var topicFilterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                Menu {
+                    ForEach(SearchTimeRange.allCases) { range in
+                        Button {
+                            setTimeRange(range)
+                        } label: {
+                            if filterOptions.timeRange == range {
+                                Label(range.rawValue, systemImage: "checkmark")
+                            } else {
+                                Text(range.rawValue)
+                            }
+                        }
+                    }
+                } label: {
+                    topicFilterChip(
+                        title: filterOptions.timeRange.rawValue,
+                        isActive: filterOptions.timeRange != .all
+                    )
+                }
+
+                Button {
+                    isNodeFilterPresented = true
+                } label: {
+                    topicFilterChip(
+                        title: topicNodeButtonTitle,
+                        isActive: !filterOptions.nodeName.trimmingCharacters(
+                            in: .whitespacesAndNewlines
+                        ).isEmpty
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Menu {
+                    ForEach(SearchSortType.allCases) { type in
+                        Button {
+                            setSortType(type)
+                        } label: {
+                            if filterOptions.sortType == type {
+                                Label(type.rawValue, systemImage: "checkmark")
+                            } else {
+                                Text(type.rawValue)
+                            }
+                        }
+                    }
+                } label: {
+                    topicFilterChip(
+                        title: filterOptions.sortType.rawValue,
+                        isActive: filterOptions.sortType != .weight
+                    )
+                }
+            }
+        }
+    }
+
+    private func topicFilterChip(title: String, isActive: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .lineLimit(1)
+            Image(systemName: "chevron.down")
+                .font(.caption2)
+        }
+        .font(.caption)
+        .foregroundColor(isActive ? .accentColor : .secondary)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule().fill(
+                isActive ? Color.accentColor.opacity(0.12)
+                    : Color.secondary.opacity(0.12)
+            )
+        )
     }
 
     @ViewBuilder
@@ -340,22 +403,11 @@ struct SearchResultView: View {
             }
 
             if selectedCategory == .topic && hasVisibleTopicFilters {
-                VStack(spacing: 12) {
-                    Button(action: {
-                        isFilterPresented = true
-                    }) {
-                        Text("调整筛选条件")
-                            .fontWeight(.medium)
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 8)
-                    }
-
-                    Button("清除所有筛选") {
-                        resetFilters()
-                    }
-                    .font(.footnote)
-                    .foregroundColor(.red)
+                Button("清除所有筛选") {
+                    resetFilters()
                 }
+                .font(.footnote)
+                .foregroundColor(.red)
             }
         }
         .frame(maxWidth: .infinity)
@@ -407,8 +459,7 @@ struct SearchResultView: View {
 
     private func resetFilters() {
         filterOptions = SearchFilterOptions()
-        resetTopicData()
-        Task { await performSearch() }
+        applyTopicFilters()
     }
 
     private func retryCurrentSearch() {
@@ -552,6 +603,23 @@ struct SearchResultView: View {
         }
 
         return req
+    }
+
+    private func setTimeRange(_ range: SearchTimeRange) {
+        guard filterOptions.timeRange != range else { return }
+        filterOptions.timeRange = range
+        applyTopicFilters()
+    }
+
+    private func setSortType(_ sortType: SearchSortType) {
+        guard filterOptions.sortType != sortType else { return }
+        filterOptions.sortType = sortType
+        applyTopicFilters()
+    }
+
+    private func applyTopicFilters() {
+        resetTopicData()
+        Task { await performSearch() }
     }
 
     @MainActor
