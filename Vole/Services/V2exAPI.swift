@@ -9,8 +9,8 @@ import Foundation
 
 public struct V2exAPI {
 
-    private let endpointV1 = "https://v2ex.com/api/"
-    private let endpointV2 = "https://www.v2ex.com/api/v2/"
+    private var endpointV1: String { SiteConfiguration.endpointV1 }
+    private var endpointV2: String { SiteConfiguration.endpointV2 }
 
     public static let shared = V2exAPI()
 

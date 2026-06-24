@@ -11,7 +11,6 @@ import SwiftUI
 
 struct NodeRowView: View {
     let node: Node
-    private let baseURL = URL(string: "https://www.v2ex.com")!
 
     var body: some View {
         HStack {
@@ -56,11 +55,7 @@ struct NodeRowView: View {
 
     /// 构建完整 URL（支持相对路径）
     private func makeFullURL(from path: String) -> URL? {
-        if path.hasPrefix("http") {
-            return URL(string: path)
-        } else {
-            return URL(string: path, relativeTo: baseURL)
-        }
+        SiteConfiguration.makeSiteURL(from: path)
     }
 
     private func parseHTML(_ html: String?) -> String {

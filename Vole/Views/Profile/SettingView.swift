@@ -8,6 +8,7 @@ struct SettingView: View {
     @State private var showStore = false
     @State private var selectedProduct: Product?
     @StateObject private var storeManager = StoreManager.shared
+    @StateObject private var siteConfigurationStore = SiteConfigurationStore.shared
 
     // 获取 App 版本号
     private var appVersion: String {
@@ -22,6 +23,13 @@ struct SettingView: View {
     // App Store ID
     private let appID = "6756212194"
     private let contactEmail = "quark.yeung@icloud.com"
+
+    private var selectedBaseURLBinding: Binding<String> {
+        Binding(
+            get: { siteConfigurationStore.selectedBaseURL },
+            set: { siteConfigurationStore.select($0) }
+        )
+    }
 
     var body: some View {
         List {
@@ -53,6 +61,32 @@ struct SettingView: View {
                 Text("内容")
             } footer: {
                 Text("自定义首页 picker 中的节点列表，每个列表最多选择 10 个节点。")
+            }
+
+            Section {
+                HStack {
+                    Label("站点地址", systemImage: "network")
+                    Spacer()
+                    Picker("站点地址", selection: selectedBaseURLBinding) {
+                        ForEach(siteConfigurationStore.baseURLs, id: \.self) { baseURL in
+                            Text(baseURL)
+                                .tag(baseURL)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .lineLimit(1)
+                }
+
+                NavigationLink {
+                    SiteBaseURLSettingsView(store: siteConfigurationStore)
+                } label: {
+                    Label("管理站点", systemImage: "slider.horizontal.3")
+                }
+            } header: {
+                Text("站点")
+            } footer: {
+                Text("当前站点会自动生成对应的 /api 和 /api/v2 接口地址。")
             }
 
             // 基本信息
@@ -202,6 +236,134 @@ struct SettingView: View {
         }
         .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+struct SiteBaseURLSettingsView: View {
+    @ObservedObject var store: SiteConfigurationStore
+    @State private var isAddSheetPresented = false
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(
+                    Array(store.baseURLs.enumerated()),
+                    id: \.element
+                ) { _, baseURL in
+                    Button {
+                        store.select(baseURL)
+                    } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(baseURL)
+                                    .foregroundStyle(.primary)
+                                    .multilineTextAlignment(.leading)
+
+                                if baseURL.caseInsensitiveCompare(
+                                    SiteConfiguration.defaultBaseURL
+                                ) == .orderedSame {
+                                    Text("默认站点")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
+                            Spacer()
+
+                            if baseURL.caseInsensitiveCompare(
+                                store.selectedBaseURL
+                            ) == .orderedSame {
+                                Image(systemName: "checkmark")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .swipeActions {
+                        if store.canDelete(baseURL) {
+                            Button(role: .destructive) {
+                                store.remove(baseURL)
+                            } label: {
+                                Label("删除", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("已保存站点")
+            } footer: {
+                Text("点击任意地址即可切换。左滑可删除，至少会保留一个地址。")
+            }
+        }
+        .navigationTitle("站点地址")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isAddSheetPresented = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+            }
+        }
+        .sheet(isPresented: $isAddSheetPresented) {
+            AddSiteBaseURLSheet(store: store)
+        }
+    }
+}
+
+private struct AddSiteBaseURLSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var store: SiteConfigurationStore
+
+    @State private var input = ""
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("https://global.v2ex.co", text: $input)
+                        .keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                } header: {
+                    Text("Base URL")
+                } footer: {
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("支持直接输入域名，未带协议时会自动补成 https://。")
+                    }
+                }
+            }
+            .navigationTitle("添加站点")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        save()
+                    }
+                }
+            }
+        }
+    }
+
+    private func save() {
+        do {
+            try store.add(input)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 

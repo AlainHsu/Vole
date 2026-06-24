@@ -134,10 +134,7 @@ struct NodeCollectionView: View {
     }
 
     private func nodeAvatarURL(from path: String) -> URL? {
-        if path.hasPrefix("http") {
-            return URL(string: path)
-        }
-        return URL(string: path, relativeTo: URL(string: "https://www.v2ex.com"))
+        SiteConfiguration.makeSiteURL(from: path)
     }
 
     // 并发加载所有节点的 topics

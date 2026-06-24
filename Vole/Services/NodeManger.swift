@@ -19,14 +19,27 @@ class NodeManager: ObservableObject {
     private var nameMap: [String: Node] = [:]
 
     private var isLoading = false
-    private let cacheKey = "cachedGroups"
+    private var siteConfigurationObserver: NSObjectProtocol?
+    private var cacheKey: String {
+        "cachedGroups.\(SiteConfiguration.cacheKeySuffix)"
+    }
 
     private init() {
-        // 启动时从缓存加载
-        if let cached = loadCachedGroups(), !cached.isEmpty {
-            let allNodes = cached.flatMap { $0.nodes }
-            rebuildIndex(from: allNodes)
-            print("⭕️ NodeManager 已从缓存构建索引 (\(allNodes.count) nodes)")
+        siteConfigurationObserver = NotificationCenter.default.addObserver(
+            forName: SiteConfiguration.didChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.restoreCachedState()
+            }
+        }
+        restoreCachedState()
+    }
+
+    deinit {
+        if let siteConfigurationObserver {
+            NotificationCenter.default.removeObserver(siteConfigurationObserver)
         }
     }
 
@@ -44,6 +57,21 @@ class NodeManager: ObservableObject {
         self.nodes = fetched
         self.groups = buildGroups(from: fetched)
         rebuildIndex(from: fetched)
+    }
+
+    private func restoreCachedState() {
+        guard let cached = loadCachedGroups(), !cached.isEmpty else {
+            groups = []
+            nodes = []
+            rebuildIndex(from: [])
+            return
+        }
+
+        groups = cached
+        let allNodes = cached.flatMap { $0.nodes }
+        nodes = allNodes
+        rebuildIndex(from: allNodes)
+        print("⭕️ NodeManager 已从缓存构建索引 (\(allNodes.count) nodes)")
     }
 
     // 模糊搜索

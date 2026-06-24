@@ -238,10 +238,7 @@ struct HomeNodeCollectionEditorView: View {
     }
 
     private func makeFullNodeURL(from path: String) -> URL? {
-        if path.hasPrefix("http") {
-            return URL(string: path)
-        }
-        return URL(string: path, relativeTo: URL(string: "https://www.v2ex.com"))
+        SiteConfiguration.makeSiteURL(from: path)
     }
 
     private var navigationTitle: String {

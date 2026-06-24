@@ -755,7 +755,7 @@ private extension URL {
 
     var v2exTopicID: Int? {
         let host = host?.lowercased()
-        guard host == "v2ex.com" || host == "www.v2ex.com" else {
+        guard SiteConfiguration.matchesCurrentSite(host: host) else {
             return nil
         }
 
