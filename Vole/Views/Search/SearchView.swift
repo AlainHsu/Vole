@@ -10,7 +10,6 @@ import SwiftUI
 struct SearchView: View {
     @State private var searchText = ""
     @State private var submittedQuery = ""
-    @State private var isSearchPresented = false
     @State private var showProfile = false
     @State private var showAlert = false
 
@@ -18,6 +17,7 @@ struct SearchView: View {
     @StateObject private var history = SearchHistory.shared
     @EnvironmentObject var navManager: NavigationManager
     @Environment(\.openURL) private var openURL
+    @Environment(\.dismissSearch) private var dismissSearch
 
     var body: some View {
         NavigationStack(path: $navManager.searchPath) {
@@ -43,7 +43,6 @@ struct SearchView: View {
             .modifier(HomeTitleDisplayModeModifier())
             .searchable(
                 text: $searchText,
-                isPresented: $isSearchPresented,
                 placement: .navigationBarDrawer(displayMode: .automatic),
                 prompt: "搜索 主题、节点、用户"
             )
@@ -94,7 +93,7 @@ struct SearchView: View {
 
         history.add(trimmed)
         submittedQuery = trimmed
-        isSearchPresented = false
+        dismissSearch()
     }
 
     @ViewBuilder
