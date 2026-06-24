@@ -65,4 +65,16 @@ extension Token {
                 ?? Int(Date().timeIntervalSince1970)
         )
     }
+
+    func withRawToken(_ rawToken: String) -> Token {
+        Token(
+            token: rawToken,
+            scope: scope,
+            expiration: expiration,
+            goodForDays: goodForDays,
+            totalUsed: totalUsed,
+            lastUsed: lastUsed,
+            created: created
+        )
+    }
 }

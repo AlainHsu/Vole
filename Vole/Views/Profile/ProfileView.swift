@@ -67,9 +67,10 @@ struct ProfileView: View {
     // 第一步：校验 Token 有效性
     func validateToken(_ token: String) async throws -> Token {
         let response = try await V2exAPI.shared.token(token: token)
-        if let r = response, let token = r.result, r.success {
-            userManager.saveToken(token)
-            return token
+        if let r = response, let validatedToken = r.result, r.success {
+            let persistedToken = validatedToken.withRawToken(token)
+            userManager.saveToken(persistedToken)
+            return persistedToken
         } else {
             throw NSError(
                 domain: "TokenError",
@@ -83,7 +84,7 @@ struct ProfileView: View {
 
     // 第二步：登录
     func loginWithToken(_ token: String) async throws {
-        let response = try await V2exAPI.shared.member()
+        let response = try await V2exAPI.shared.member(token: token)
         if let r = response, let memeber = r.result, r.success {
             userManager.saveMember(memeber)
             print(memeber)

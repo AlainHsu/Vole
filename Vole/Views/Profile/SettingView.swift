@@ -24,13 +24,6 @@ struct SettingView: View {
     private let appID = "6756212194"
     private let contactEmail = "quark.yeung@icloud.com"
 
-    private var selectedBaseURLBinding: Binding<String> {
-        Binding(
-            get: { siteConfigurationStore.selectedBaseURL },
-            set: { siteConfigurationStore.select($0) }
-        )
-    }
-
     var body: some View {
         List {
             // 外观设置
@@ -64,24 +57,17 @@ struct SettingView: View {
             }
 
             Section {
-                HStack {
-                    Label("站点地址", systemImage: "network")
-                    Spacer()
-                    Picker("站点地址", selection: selectedBaseURLBinding) {
-                        ForEach(siteConfigurationStore.baseURLs, id: \.self) { baseURL in
-                            Text(baseURL)
-                                .tag(baseURL)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                    .lineLimit(1)
-                }
-
                 NavigationLink {
                     SiteBaseURLSettingsView(store: siteConfigurationStore)
                 } label: {
-                    Label("管理站点", systemImage: "slider.horizontal.3")
+                    HStack(spacing: 12) {
+                        Label("站点地址", systemImage: "network")
+                        Spacer()
+                        Text(siteConfigurationStore.selectedBaseURL)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
                 }
             } header: {
                 Text("站点")
@@ -324,7 +310,7 @@ private struct AddSiteBaseURLSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("https://global.v2ex.co", text: $input)
+                    TextField("输入站点地址", text: $input)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()

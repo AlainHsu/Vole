@@ -333,11 +333,12 @@ public struct V2exAPI {
     /**
      获取自己的 Profile
      */
-    public func member() async throws -> Response<Member>? {
+    public func member(token: String? = nil) async throws -> Response<Member>? {
         let path = "member"
         return try await request(
             url: endpointV2 + path,
-            decodeClass: Response<Member>.self
+            decodeClass: Response<Member>.self,
+            token: token
         )
     }
 

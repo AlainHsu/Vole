@@ -2,10 +2,9 @@ import Foundation
 
 enum SiteConfiguration {
     static let defaultBaseURL = "https://www.v2ex.com"
-    private static let accidentalDefaultBaseURL = "https://global.v2ex.co"
     private static let presetBaseURLs = [
         defaultBaseURL,
-        accidentalDefaultBaseURL,
+        "https://global.v2ex.co",
     ]
 
     private static let baseURLsKey = "siteBaseURLs"
@@ -25,10 +24,6 @@ enum SiteConfiguration {
 
     static var selectedBaseURL: String {
         loadState().selectedBaseURL
-    }
-
-    static var baseURLs: [String] {
-        loadState().baseURLs
     }
 
     static var cacheKeySuffix: String {
@@ -91,77 +86,56 @@ enum SiteConfiguration {
     }
 
     static func persist(baseURLs: [String], selectedBaseURL: String?) {
-        var normalizedURLs: [String] = []
-        var seen = Set<String>()
+        let state = resolveState(
+            baseURLs: baseURLs,
+            selectedBaseURL: selectedBaseURL
+        )
 
-        for url in baseURLs {
-            guard let normalized = normalizeBaseURL(url) else { continue }
-            let key = normalized.lowercased()
-            if seen.insert(key).inserted {
-                normalizedURLs.append(normalized)
-            }
-        }
-
-        if normalizedURLs.isEmpty {
-            normalizedURLs = presetBaseURLs
-        }
-
-        let normalizedSelected = selectedBaseURL.flatMap(normalizeBaseURL)
-        let finalSelected =
-            normalizedSelected.flatMap { selected in
-                normalizedURLs.first {
-                    $0.caseInsensitiveCompare(selected) == .orderedSame
-                }
-            } ?? normalizedURLs[0]
-
-        UserDefaults.standard.set(normalizedURLs, forKey: baseURLsKey)
-        UserDefaults.standard.set(finalSelected, forKey: selectedBaseURLKey)
+        UserDefaults.standard.set(state.baseURLs, forKey: baseURLsKey)
+        UserDefaults.standard.set(state.selectedBaseURL, forKey: selectedBaseURLKey)
         NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 
     static func loadState() -> (baseURLs: [String], selectedBaseURL: String) {
-        let storedURLs = UserDefaults.standard.stringArray(forKey: baseURLsKey)
-            ?? [defaultBaseURL]
-        let storedSelected = UserDefaults.standard.string(
-            forKey: selectedBaseURLKey
+        resolveState(
+            baseURLs: UserDefaults.standard.stringArray(forKey: baseURLsKey) ?? [],
+            selectedBaseURL: UserDefaults.standard.string(
+                forKey: selectedBaseURLKey
+            )
         )
+    }
 
+    private static func resolveState(
+        baseURLs: [String],
+        selectedBaseURL: String?
+    ) -> (baseURLs: [String], selectedBaseURL: String) {
+        let normalizedBaseURLs = normalizeBaseURLs(baseURLs + presetBaseURLs)
+        let finalBaseURLs =
+            normalizedBaseURLs.isEmpty ? normalizeBaseURLs(presetBaseURLs) : normalizedBaseURLs
+        let normalizedSelected = selectedBaseURL.flatMap(normalizeBaseURL)
+        let finalSelected =
+            normalizedSelected.flatMap { selected in
+                finalBaseURLs.first {
+                    $0.caseInsensitiveCompare(selected) == .orderedSame
+                }
+            } ?? finalBaseURLs[0]
+
+        return (finalBaseURLs, finalSelected)
+    }
+
+    private static func normalizeBaseURLs(_ rawValues: [String]) -> [String] {
         var normalizedURLs: [String] = []
         var seen = Set<String>()
 
-        for url in storedURLs {
-            guard let normalized = normalizeBaseURL(url) else { continue }
+        for rawValue in rawValues {
+            guard let normalized = normalizeBaseURL(rawValue) else { continue }
             let key = normalized.lowercased()
             if seen.insert(key).inserted {
                 normalizedURLs.append(normalized)
             }
         }
 
-        if normalizedURLs.isEmpty {
-            normalizedURLs = presetBaseURLs
-        }
-
-        let normalizedSelected = storedSelected.flatMap(normalizeBaseURL)
-
-        if normalizedURLs.count == 1,
-            normalizedURLs[0].caseInsensitiveCompare(accidentalDefaultBaseURL)
-                == .orderedSame,
-            normalizedSelected == nil
-                || normalizedSelected?.caseInsensitiveCompare(
-                    accidentalDefaultBaseURL
-                ) == .orderedSame
-        {
-            normalizedURLs = presetBaseURLs
-        }
-
-        let finalSelected =
-            normalizedSelected.flatMap { selected in
-                normalizedURLs.first {
-                    $0.caseInsensitiveCompare(selected) == .orderedSame
-                }
-            } ?? normalizedURLs[0]
-
-        return (normalizedURLs, finalSelected)
+        return normalizedURLs
     }
 }
 
@@ -197,9 +171,18 @@ final class SiteConfigurationStore: ObservableObject {
         selectedBaseURL = state.selectedBaseURL
     }
 
+    private func persist(baseURLs: [String]? = nil, selectedBaseURL: String? = nil) {
+        SiteConfiguration.persist(
+            baseURLs: baseURLs ?? self.baseURLs,
+            selectedBaseURL: selectedBaseURL ?? self.selectedBaseURL
+        )
+        let state = SiteConfiguration.loadState()
+        self.baseURLs = state.baseURLs
+        self.selectedBaseURL = state.selectedBaseURL
+    }
+
     func select(_ baseURL: String) {
-        SiteConfiguration.persist(baseURLs: baseURLs, selectedBaseURL: baseURL)
-        reload()
+        persist(selectedBaseURL: baseURL)
     }
 
     @discardableResult
@@ -215,20 +198,14 @@ final class SiteConfigurationStore: ObservableObject {
             updated.append(normalized)
         }
 
-        SiteConfiguration.persist(baseURLs: updated, selectedBaseURL: normalized)
-        reload()
+        persist(baseURLs: updated, selectedBaseURL: normalized)
         return normalized
     }
 
     func remove(_ baseURL: String) {
-        let updated = baseURLs.filter {
+        persist(baseURLs: baseURLs.filter {
             $0.caseInsensitiveCompare(baseURL) != .orderedSame
-        }
-        SiteConfiguration.persist(
-            baseURLs: updated,
-            selectedBaseURL: selectedBaseURL
-        )
-        reload()
+        })
     }
 
     func canDelete(_ baseURL: String) -> Bool {
