@@ -80,7 +80,7 @@ struct TopicRow: View {
                     .lineLimit(3)
             }
 
-            // 发布时间 + 评论数量
+            // 发布时间 + 互动数据
             HStack {
                 if let created = topic.created {
                     TimelineView(.everyMinute) { _ in
@@ -92,13 +92,24 @@ struct TopicRow: View {
                     }
                 }
                 Spacer()
-                if let replies = topic.replies {
-                    HStack(spacing: 4) {  // 图标和文字间距
-                        Image(systemName: "ellipsis.bubble")
-                            .foregroundColor(.secondary)  // 图标颜色
-                        Text("\(replies)")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+
+                HStack(spacing: 12) {
+                    if let stars = topic.stars, stars > 0 {
+                        topicMetric(
+                            stars,
+                            systemImage: "star.fill",
+                            color: .yellow
+                        )
+                    }
+                    if let thanks = topic.thanks, thanks > 0 {
+                        topicMetric(
+                            thanks,
+                            systemImage: "heart.fill",
+                            color: .red
+                        )
+                    }
+                    if let replies = topic.replies {
+                        topicMetric(replies, systemImage: "ellipsis.bubble")
                     }
                 }
             }
@@ -129,7 +140,20 @@ struct TopicRow: View {
             }
             .tint(.accentColor)
         }
+    }
 
+    private func topicMetric(
+        _ value: Int,
+        systemImage: String,
+        color: Color = .secondary
+    ) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .foregroundStyle(color)
+            Text("\(value)")
+                .foregroundStyle(.secondary)
+        }
+        .font(.subheadline)
     }
 }
 

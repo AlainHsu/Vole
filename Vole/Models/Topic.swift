@@ -20,13 +20,15 @@ public struct Topic: Identifiable, Decodable, Hashable {
     public let syntax: Int?
     public let lastModified: Int?
     public let replies: Int?
+    public let stars: Int?
+    public let thanks: Int?
     public let lastReplyBy: String?
     public let lastTouched: Int?
     public let supplements: [Supplement]?
 
     enum CodingKeys: String, CodingKey {
         case node, member, supplements, title, url, created, deleted, content,
-            replies, id, syntax
+            replies, stars, thanks, id, syntax
         case lastReplyBy = "last_reply_by"
         case lastTouched = "last_touched"
         case lastModified = "last_modified"
