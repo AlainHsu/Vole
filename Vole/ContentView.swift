@@ -9,6 +9,7 @@ import SwiftData
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selection: TabID = .home
     @State private var homeFeedSelection: HomeFeed = .latest
     @StateObject private var navManager = NavigationManager()
@@ -91,6 +92,12 @@ struct ContentView: View {
             }
         }
         .environmentObject(navManager)
+        .onAppear {
+            notifyManager.updateScenePhase(scenePhase)
+        }
+        .onChange(of: scenePhase) { _, newValue in
+            notifyManager.updateScenePhase(newValue)
+        }
     }
 }
 

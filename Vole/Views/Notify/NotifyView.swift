@@ -118,9 +118,16 @@ struct NotifyView: View {
         .scrollContentBackground(.hidden)
         .background(Color(.systemGroupedBackground))
         .homeLikeListTopInset()
+        .safeAreaInset(edge: .top, spacing: 8) {
+            if notifyManager.hasPendingRefresh {
+                pendingRefreshBanner
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
         .refreshable {
             await notifyManager.refresh()
         }
+        .animation(.snappy, value: notifyManager.hasPendingRefresh)
     }
 
     private var loadingStateView: some View {
@@ -156,6 +163,41 @@ struct NotifyView: View {
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 12)
         }
+    }
+
+    private var pendingRefreshBanner: some View {
+        HStack {
+            Spacer()
+            Button {
+                notifyManager.applyPendingRefresh()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .imageScale(.medium)
+                    Text(pendingRefreshText)
+                        .lineLimit(1)
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(.regularMaterial, in: Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(Color.accentColor.opacity(0.12), lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
+            Spacer()
+        }
+        .padding(.top, 8)
+    }
+
+    private var pendingRefreshText: String {
+        if notifyManager.pendingNewCount > 0 {
+            return "有 \(notifyManager.pendingNewCount) 条新通知，点击更新"
+        }
+        return "有新通知，点击更新"
     }
 }
 

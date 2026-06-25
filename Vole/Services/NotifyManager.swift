@@ -13,9 +13,18 @@ import SwiftUI
 final class NotifyManager: ObservableObject {
     static let shared = NotifyManager()
 
+    private struct PendingRefreshPayload {
+        let notifications: [Notification]
+        let totalCount: Int
+        let newCount: Int
+    }
+
     @Published var notifications: [Notification] = []
     @Published var totalCount: Int = 0
+    @Published private var latestTotalCount: Int = 0
     @Published private(set) var readIds: Set<Int> = []
+    @Published private(set) var hasPendingRefresh = false
+    @Published private(set) var pendingNewCount = 0
 
     // 一键已读时的水位线 ID 和 当时的总数
     @Published private(set) var lastReadAllId: Int = 0
@@ -30,8 +39,10 @@ final class NotifyManager: ObservableObject {
     private let keyLastReadId = "last_read_all_id"
     private let keyAllReadTotal = "all_read_total_count"
 
-    private var timer: Timer?
+    private var pollingTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()  // 用于存放订阅对象
+    private var pendingRefreshPayload: PendingRefreshPayload?
+    private var isAppActive = true
 
     private init() {
         // 读取已读集合
@@ -56,47 +67,68 @@ final class NotifyManager: ObservableObject {
                 if member != nil {
                     // 1. 用户登录了：启动定时器，并立即刷新一次数据
                     print("NotifyManager: 检测到登录，启动服务")
-                    self?.startTimer()
+                    self?.startPollingIfNeeded()
                     Task {
                         await self?.refresh()
                     }
                 } else {
                     // 2. 用户登出了：停止定时器，清空旧数据
                     print("NotifyManager: 检测到登出，清理数据")
-                    self?.stopTimer()
+                    self?.stopPolling()
                     self?.notifications = []
                     self?.totalCount = 0
+                    self?.latestTotalCount = 0
+                    self?.currentPage = 1
+                    self?.endIndex = 0
+                    self?.clearPendingRefresh()
                 }
             }
             .store(in: &cancellables)
     }
 
-    // 启动定时器
-    func startTimer() {
-        // 先停止旧的，防止重复
-        stopTimer()
+    func updateScenePhase(_ scenePhase: ScenePhase) {
+        let isActive = scenePhase == .active
+        guard isAppActive != isActive else { return }
 
-        // 前置判断：如果用户未登录，直接返回，不启动定时器
+        isAppActive = isActive
+
+        if isActive {
+            startPollingIfNeeded()
+            Task {
+                await pollLatestNotifications()
+            }
+        } else {
+            stopPolling()
+        }
+    }
+
+    private func startPollingIfNeeded() {
+        guard pollingTask == nil else { return }
+        guard isAppActive else { return }
         guard UserManager.shared.currentMember != nil else { return }
-        // 每 60 秒执行一次
-        timer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) {
-            [weak self] _ in
-            Task { @MainActor in
-                // 定时刷新通常只刷新第一页
-                await self?.refresh()
+
+        pollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(60))
+                } catch {
+                    break
+                }
+
+                guard !Task.isCancelled else { break }
+                await self?.pollLatestNotifications()
             }
         }
     }
 
-    // 停止定时器
-    func stopTimer() {
-        timer?.invalidate()
-        timer = nil
+    private func stopPolling() {
+        pollingTask?.cancel()
+        pollingTask = nil
     }
 
     var unreadCount: Int {
         // 1. 先算出一键已读后，新产生了多少条通知
-        let newCountSinceAllRead = totalCount - allReadTotalCount
+        let newCountSinceAllRead = latestTotalCount - allReadTotalCount
 
         // 2. 算出一键已读后，用户手动单条点读的数量
         // 注意：只有那些 ID 比水位线大的点读才算有效（水位线下的本来就是已读）
@@ -119,12 +151,14 @@ final class NotifyManager: ObservableObject {
     // 一键已读
     func markAllRead() {
         // 1. 记录当前最顶部的 ID 作为水位线
-        if let latestId = notifications.first?.id {
+        if let latestId = pendingRefreshPayload?.notifications.first?.id
+            ?? notifications.first?.id
+        {
             lastReadAllId = latestId
         }
 
         // 2. 记录当前服务器给出的总数
-        allReadTotalCount = totalCount
+        allReadTotalCount = latestTotalCount
 
         // 3. 清空旧的单点已读集合（因为它们已经都在 allReadTotalCount 范围里了）
         readIds.removeAll()
@@ -157,24 +191,22 @@ final class NotifyManager: ObservableObject {
 
         isLoading = true
         do {
-            let response = try await V2exAPI().notifications(
-                page: page,
-                token: t.token ?? ""
-            )
+            let response = try await fetchNotifications(page: page, token: t.token ?? "")
             isLoading = false
 
-            if let r = response, r.success {
-                if let newNotifications = r.result {
-                    if isRefresh {
-                        self.notifications = newNotifications
-                    } else {
-                        self.notifications.append(contentsOf: newNotifications)
-                    }
+            if let response {
+                latestTotalCount = response.totalCount
+                if isRefresh {
+                    applyRefreshResult(
+                        response.notifications,
+                        totalCount: response.totalCount
+                    )
+                } else {
+                    self.notifications.append(contentsOf: response.notifications)
+                    self.totalCount = response.totalCount
+                    self.endIndex = min(self.notifications.count, response.totalCount)
+                    self.currentPage = page
                 }
-                if let msg = r.message {
-                    self.parseMessage(msg)
-                }
-                self.currentPage = page
             }
         } catch {
             isLoading = false
@@ -189,13 +221,58 @@ final class NotifyManager: ObservableObject {
 
     func refresh() async {
         guard !isLoading else { return }
-        self.currentPage = 1
-        self.endIndex = 0
         await loadNotifications(page: 1, isRefresh: true)
     }
 
+    func applyPendingRefresh() {
+        guard let pendingRefreshPayload else { return }
+        applyRefreshResult(
+            pendingRefreshPayload.notifications,
+            totalCount: pendingRefreshPayload.totalCount
+        )
+    }
+
+    private func pollLatestNotifications() async {
+        guard let token = UserManager.shared.token?.token, !isLoading else { return }
+
+        isLoading = true
+        do {
+            let response = try await fetchNotifications(page: 1, token: token)
+            isLoading = false
+
+            guard let response else { return }
+            let previousTotalCount = latestTotalCount
+            latestTotalCount = response.totalCount
+
+            guard !notifications.isEmpty else {
+                applyRefreshResult(
+                    response.notifications,
+                    totalCount: response.totalCount
+                )
+                return
+            }
+
+            if hasIncomingChanges(response.notifications) {
+                pendingRefreshPayload = PendingRefreshPayload(
+                    notifications: response.notifications,
+                    totalCount: response.totalCount,
+                    newCount: pendingNotificationCount(
+                        for: response.notifications,
+                        incomingTotalCount: response.totalCount,
+                        previousTotalCount: previousTotalCount
+                    )
+                )
+                hasPendingRefresh = true
+                pendingNewCount = pendingRefreshPayload?.newCount ?? 0
+            }
+        } catch {
+            isLoading = false
+            print("轮询通知失败: \(error)")
+        }
+    }
+
     // MARK: - 正则解析逻辑（与之前版本保持一致）
-    private func parseMessage(_ message: String) {
+    private func parseMessage(_ message: String) -> (endIndex: Int, totalCount: Int)? {
         // 正则表达式解释：
         // (\d+)-(\d+)\/(\d+) :
         // 捕获组 1 (\d+): Start
@@ -216,18 +293,73 @@ final class NotifyManager: ObservableObject {
 
                 // 提取 End
                 let endString = nsString.substring(with: match.range(at: 2))
-                if let endCount = Int(endString) {
-                    self.endIndex = endCount
-                }
-
-                // 提取 Total
                 let totalString = nsString.substring(with: match.range(at: 3))
-                if let totalCount = Int(totalString) {
-                    self.totalCount = totalCount
+                if let endCount = Int(endString),
+                   let totalCount = Int(totalString) {
+                    return (endCount, totalCount)
                 }
             }
         } catch {
             print("正则解析出错: \(error)")
         }
+        return nil
+    }
+
+    private func fetchNotifications(page: Int, token: String) async throws -> (
+        notifications: [Notification], totalCount: Int
+    )? {
+        let response = try await V2exAPI().notifications(page: page, token: token)
+        guard let response, response.success else { return nil }
+
+        let notifications = response.result ?? []
+        let pageInfo = response.message.flatMap(parseMessage)
+        let totalCount = pageInfo?.totalCount
+            ?? max(latestTotalCount, max(self.totalCount, notifications.count))
+
+        return (notifications, totalCount)
+    }
+
+    private func hasIncomingChanges(_ newNotifications: [Notification]) -> Bool {
+        guard !newNotifications.isEmpty else { return false }
+        return !Array(notifications.prefix(newNotifications.count)).elementsEqual(newNotifications)
+    }
+
+    private func pendingNotificationCount(
+        for newNotifications: [Notification],
+        incomingTotalCount: Int,
+        previousTotalCount: Int
+    ) -> Int {
+        let existingIDs = Set(notifications.map(\.id))
+        let insertedCount = newNotifications.filter { !existingIDs.contains($0.id) }.count
+        let totalDelta = max(0, incomingTotalCount - previousTotalCount)
+        return max(insertedCount, totalDelta)
+    }
+
+    private func clearPendingRefresh() {
+        pendingRefreshPayload = nil
+        hasPendingRefresh = false
+        pendingNewCount = 0
+    }
+
+    private func applyRefreshResult(
+        _ newNotifications: [Notification],
+        totalCount: Int
+    ) {
+        clearPendingRefresh()
+
+        let incomingIds = Set(newNotifications.map(\.id))
+        let preservedOlderNotifications = notifications.filter {
+            !incomingIds.contains($0.id)
+        }
+
+        notifications = newNotifications + preservedOlderNotifications
+        self.totalCount = totalCount
+        latestTotalCount = totalCount
+
+        let loadedCount = min(notifications.count, totalCount)
+        endIndex = loadedCount
+
+        let pageSize = max(newNotifications.count, 1)
+        currentPage = max(1, Int(ceil(Double(max(loadedCount, 1)) / Double(pageSize))))
     }
 }
