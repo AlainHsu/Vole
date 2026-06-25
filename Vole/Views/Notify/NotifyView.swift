@@ -5,119 +5,156 @@
 //  Created by 杨权 on 8/25/25.
 //
 
-import Kingfisher
-import SwiftSoup
 import SwiftUI
 
 struct NotifyView: View {
-
     @State private var showProfile = false
     @State private var showAlert = false
     @ObservedObject private var userManager = UserManager.shared
     @ObservedObject private var notifyManager = NotifyManager.shared
     @EnvironmentObject var navManager: NavigationManager
 
+    private var isLoggedIn: Bool {
+        userManager.currentMember != nil
+    }
+
     var body: some View {
         NavigationStack(path: $navManager.notifyPath) {
-            Group {
-                if notifyManager.notifications.isEmpty {
-                    Text("暂无通知")
-                        .foregroundStyle(.secondary)
-                        .frame(
-                            maxWidth: .infinity,
-                            alignment: .center
+            content
+                .navigationTitle("通知")
+                .modifier(HomeTitleDisplayModeModifier())
+                .navigationDestination(for: Route.self) { route in
+                    switch route {
+                    case .topicId(let topicId):
+                        DetailView(topicId: topicId, path: $navManager.notifyPath)
+                    case .nodeName(let nodeName):
+                        NodeDetailView(
+                            nodeName: nodeName,
+                            path: $navManager.nodePath
                         )
-                        .listRowSeparator(.hidden)
-                } else {
-                    List {
-                        Section(footer: footerView) {
-                            ForEach(notifyManager.notifications, id: \.id) {
-                                item in
-                                NotifyRowView(item: item) { topicId in
-                                    navManager.notifyPath.append(
-                                        Route.topicId(topicId)
-                                    )
-                                }
-                                .listRowInsets(EdgeInsets())
-                                .onAppear {
-                                    if item.id
-                                        == notifyManager.notifications.last?.id
-                                    {
-                                        Task {
-                                            await notifyManager.loadNextPage()
-                                        }
-                                    }
-                                }
+                    case .node(let node):
+                        NodeDetailView(node: node, path: $navManager.notifyPath)
+                    default:
+                        EmptyView()
+                    }
+                }
+                .toolbar {
+                    if notifyManager.unreadCount > 0 {
+                        ToolbarItem {
+                            Button {
+                                showAlert = true
+                            } label: {
+                                Image(systemName: "tray.and.arrow.down")
                             }
                         }
-                    }
-                    .homeLikeListTopInset()
-                    .refreshable {
-                        await notifyManager.refresh()
-                    }
-                }
-            }
-            .navigationTitle("通知")
-            .modifier(HomeTitleDisplayModeModifier())
-            .navigationDestination(for: Route.self) { route in
-                switch route {
-                case .topicId(let topicId):
-                    DetailView(topicId: topicId, path: $navManager.notifyPath)
-                case .nodeName(let nodeName):
-                    NodeDetailView(
-                        nodeName: nodeName,
-                        path: $navManager.nodePath
-                    )
-                case .node(let node):
-                    NodeDetailView(node: node, path: $navManager.notifyPath)
-                default: EmptyView()
-                }
-            }
-            .toolbar {
-                if notifyManager.unreadCount > 0 {
-                    ToolbarItem {
-                        Button {
-                            showAlert = true
-                        } label: {
-                            Image(systemName: "tray.and.arrow.down")
+                        if #available(iOS 26.0, *) {
+                            ToolbarSpacer(.fixed)
                         }
                     }
-                    if #available(iOS 26.0, *) {
-                        ToolbarSpacer(.fixed)
+                    ToolbarItem {
+                        AvatarView {
+                            showProfile = true
+                        }
                     }
                 }
-                ToolbarItem {
-                    AvatarView {
-                        showProfile = true
+                .alert("一键已读所有通知？", isPresented: $showAlert) {
+                    Button("确认", role: .destructive) {
+                        notifyManager.markAllRead()
                     }
+                    Button("取消", role: .cancel) {}
                 }
-            }
-            .alert("一键已读所有通知？", isPresented: $showAlert) {
-                Button("确认", role: .destructive) {
-                    notifyManager.markAllRead()
+                .sheet(isPresented: $showProfile) {
+                    ProfileView()
                 }
-                Button("取消", role: .cancel) {}
-            }
-            .sheet(isPresented: $showProfile) {
-                ProfileView()
-            }
         }
     }
 
     @ViewBuilder
+    private var content: some View {
+        if !isLoggedIn {
+            ContentUnavailableView(
+                "登录后查看通知",
+                systemImage: "bell.slash",
+                description: Text("回复、提到、收藏和感谢都会在这里出现")
+            )
+        } else if notifyManager.notifications.isEmpty {
+            if notifyManager.isLoading {
+                loadingStateView
+            } else {
+                ContentUnavailableView(
+                    "还没有通知",
+                    systemImage: "bell.badge",
+                    description: Text("有人和你互动时，这里会自动更新")
+                )
+            }
+        } else {
+            notificationList
+        }
+    }
+
+    private var notificationList: some View {
+        List {
+            Section(footer: footerView) {
+                ForEach(notifyManager.notifications, id: \.id) { item in
+                    NotifyRowView(item: item) { topicId in
+                        navManager.notifyPath.append(Route.topicId(topicId))
+                    }
+                    .listRowInsets(
+                        EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
+                    )
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .onAppear {
+                        if item.id == notifyManager.notifications.last?.id {
+                            Task {
+                                await notifyManager.loadNextPage()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemGroupedBackground))
+        .homeLikeListTopInset()
+        .refreshable {
+            await notifyManager.refresh()
+        }
+    }
+
+    private var loadingStateView: some View {
+        VStack(spacing: 12) {
+            ProgressView()
+                .controlSize(.large)
+            Text("正在同步通知…")
+                .font(.headline)
+            Text("稍等一下，最新互动马上出现")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
     private var footerView: some View {
-        // 底部加载更多动画
         if notifyManager.hasNextPage {
-            VStack {
-                ProgressView("加载中…")
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("正在加载更多通知…")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 12)
             .listRowSeparator(.hidden)
         } else if notifyManager.totalCount > 0 {
-            VStack {
-                Text("已加载全部\(notifyManager.totalCount)条通知")
-            }
-            .frame(maxWidth: .infinity, alignment: .center)
+            Text("已加载全部 \(notifyManager.totalCount) 条通知")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 12)
         }
     }
 }
