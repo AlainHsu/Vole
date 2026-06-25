@@ -2,15 +2,13 @@ import StoreKit
 import SwiftUI
 
 struct SettingView: View {
-    // 主题色
+    @Environment(\.openURL) private var openURL
     @AppStorage("appTheme") private var selectedTheme: AppTheme = .blue
 
     @State private var showStore = false
-    @State private var selectedProduct: Product?
     @StateObject private var storeManager = StoreManager.shared
     @StateObject private var siteConfigurationStore = SiteConfigurationStore.shared
 
-    // 获取 App 版本号
     private var appVersion: String {
         let version =
             Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
@@ -20,208 +18,327 @@ struct SettingView: View {
         return "v\(version) (\(build))"
     }
 
-    // App Store ID
     private let appID = "6756212194"
     private let contactEmail = "quark.yeung@icloud.com"
 
+    private var appStoreURL: URL? {
+        URL(string: "itms-apps://apps.apple.com/app/id\(appID)")
+    }
+
+    private var contactURL: URL? {
+        URL(
+            string: "mailto:\(contactEmail)?subject=App反馈&body=你好，我想反馈"
+                .addingPercentEncoding(
+                    withAllowedCharacters: .urlQueryAllowed
+                ) ?? ""
+        )
+    }
+
+    private var discordURL: URL {
+        URL(string: "https://discord.gg/4vnEBzrW3d")!
+    }
+
+    private var projectURL: URL {
+        URL(string: "https://github.com/YangQuan666/Vole")!
+    }
+
+    private var selectedSiteHost: String {
+        URL(string: siteConfigurationStore.selectedBaseURL)?.host
+            ?? siteConfigurationStore.selectedBaseURL
+    }
+
+    private var savedSiteSummary: String {
+        "已保存 \(siteConfigurationStore.baseURLs.count) 个站点"
+    }
+
     var body: some View {
         List {
-            // 外观设置
-            Section {
-                HStack {
-                    Label("主题色", systemImage: "paintpalette.fill")
-                    Spacer()
-                    Picker("主题色", selection: $selectedTheme) {
-                        ForEach(AppTheme.allCases) { theme in
-                            Text(theme.rawValue)
-                                .tag(theme)
-                        }
-                    }
-                    .pickerStyle(.menu)  // 下拉菜单样式，显得更简洁
-                    .tint(selectedTheme.color)  // 让文字显示当前选中的颜色
-                }
-            } header: {
-                Text("外观")
-            }
+            Section("偏好设置") {
+                themeRow
 
-            Section {
                 NavigationLink {
                     HomeNodeListSettingsView()
                 } label: {
-                    Label("首页列表", systemImage: "list.bullet.rectangle.portrait.fill")
+                    SettingRow(
+                        systemImage: "list.bullet.rectangle.portrait",
+                        tint: .orange,
+                        title: "首页列表",
+                        subtitle: "管理首页展示的节点列表"
+                    )
                 }
-            } header: {
-                Text("内容")
-            } footer: {
-                Text("自定义首页 picker 中的节点列表，每个列表最多选择 10 个节点。")
-            }
 
-            Section {
                 NavigationLink {
                     SiteBaseURLSettingsView(store: siteConfigurationStore)
                 } label: {
-                    HStack(spacing: 12) {
-                        Label("站点地址", systemImage: "network")
-                        Spacer()
-                        Text(siteConfigurationStore.selectedBaseURL)
-                            .font(.subheadline)
+                    SettingRow(
+                        systemImage: "network",
+                        tint: .green,
+                        title: "站点地址",
+                        subtitle: savedSiteSummary
+                    ) {
+                        Text(selectedSiteHost)
+                            .font(.footnote.weight(.medium))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
                 }
-            } header: {
-                Text("站点")
-            } footer: {
-                Text("当前站点会自动生成对应的 /api 和 /api/v2 接口地址。")
             }
 
-            // 基本信息
-            Section {
-                // 点击跳转 App Store
-                HStack {
-                    Label("版本号", systemImage: "info.circle.fill")
-                    Spacer()
-                    Button {
-                        if let url = URL(
-                            string:
-                                "itms-apps://apps.apple.com/app/id\(appID)"
-                        ) {
-                            UIApplication.shared.open(url)
-                        }
-                    } label: {
+            Section("支持与反馈") {
+                Button {
+                    showStore = true
+                } label: {
+                    SettingRow(
+                        systemImage: "cup.and.heat.waves",
+                        tint: .orange,
+                        title: "请我喝咖啡",
+                        subtitle: "为爱发电，感谢支持"
+                    ) {
+                        Text("支持一下")
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    guard let contactURL else { return }
+                    openURL(contactURL)
+                } label: {
+                    SettingRow(
+                        systemImage: "envelope",
+                        tint: .blue,
+                        title: "联系我们",
+                        subtitle: contactEmail
+                    ) {
+                        SettingExternalAccessory()
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Link(destination: discordURL) {
+                    SettingRow(
+                        systemImage: "bubble.left.and.exclamationmark.bubble.right",
+                        tint: .indigo,
+                        title: "问题反馈",
+                        subtitle: "加入 Discord 社区"
+                    ) {
+                        SettingExternalAccessory()
+                    }
+                }
+                .buttonStyle(.plain)
+            }
+
+            Section("关于项目") {
+                Button {
+                    guard let appStoreURL else { return }
+                    openURL(appStoreURL)
+                } label: {
+                    SettingRow(
+                        systemImage: "info.circle",
+                        tint: .gray,
+                        title: "版本号",
+                        subtitle: "查看 App Store 页面"
+                    ) {
                         Text(appVersion)
+                            .font(.footnote.weight(.medium))
+                            .foregroundStyle(.secondary)
                     }
                 }
+                .buttonStyle(.plain)
 
-                // 请喝咖啡
-                HStack {
-                    Button {
-                        showStore = true
-                    } label: {
-                        HStack {
-                            Label("请我喝咖啡", systemImage: "cup.and.saucer.fill")
-                            Spacer()
-                            Text("为爱发电感谢支持~")
-                                .foregroundColor(.secondary)
-                                .font(.caption)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-                .confirmationDialog(
-                    "选择金额",
-                    isPresented: $showStore,
-                    titleVisibility: .visible
-                ) {
-                    ForEach(storeManager.products, id: \.id) { product in
-                        Button(
-                            "\(product.displayName) - \(product.displayPrice)"
-                        ) {
-                            Task {
-                                let success = await storeManager.purchase(
-                                    product
-                                )
-                                if success {
-                                    print("购买成功，可以更新本地余额或显示提示")
-                                } else {
-                                    print("购买失败或取消")
-                                }
-                            }
-                        }
+                Link(destination: projectURL) {
+                    SettingRow(
+                        systemImage: "folder",
+                        tint: .brown,
+                        title: "项目地址",
+                        subtitle: "YangQuan666/Vole"
+                    ) {
+                        SettingExternalAccessory()
                     }
                 }
-                .task {
-                    await storeManager.loadProducts()
-                }
+                .buttonStyle(.plain)
 
-                // 联系我们
-                HStack {
-                    Label("联系我们", systemImage: "envelope.fill")
-                    Spacer()
-                    Button {
-                        let mailToString =
-                            "mailto:\(contactEmail)?subject=App反馈&body=你好，我想反馈"
-                        if let mailUrl = URL(
-                            string: mailToString.addingPercentEncoding(
-                                withAllowedCharacters: .urlQueryAllowed
-                            ) ?? ""
-                        ) {
-                            if UIApplication.shared.canOpenURL(mailUrl) {
-                                UIApplication.shared.open(mailUrl)
-                            } else {
-                                // 这里可以弹窗提示未配置邮件账户，为简化仅打印
-                                print("无法打开邮件客户端")
-                            }
-                        }
-                    } label: {
-                        Text(contactEmail)
-                            .foregroundColor(.secondary)
-                            .font(.caption)
-                    }
-                }
-
-                // 问题反馈
-                HStack {
-                    HStack {
-                        Label(
-                            "问题反馈",
-                            systemImage:
-                                "bubble.left.and.exclamationmark.bubble.right.fill"
-                        )
-                        Spacer()
-                        Link(
-                            "Discord",
-                            destination: URL(
-                                string: "https://discord.gg/4vnEBzrW3d"
-                            )!
-                        )
-                        .foregroundColor(.secondary)
-                        .font(.caption)
-                    }
-                }
-            } header: {
-                Text("信息")
-            }
-
-            // 关于与法律
-            Section {
-                // 项目地址
-                HStack {
-                    Label(
-                        "项目地址",
-                        systemImage:
-                            "folder.fill"
-                    )
-                    Spacer()
-                    Link(
-                        "YangQuan666/Vole",
-                        destination: URL(
-                            string: "https://github.com/YangQuan666/Vole"
-                        )!
-                    )
-                    .foregroundColor(.secondary)
-                    .font(.caption)
-                }
-
-                // 许可协议
                 NavigationLink {
                     LicenseContentView()
                 } label: {
-                    Label("许可协议", systemImage: "doc.text.fill")
+                    SettingRow(
+                        systemImage: "doc.text",
+                        tint: .teal,
+                        title: "许可协议",
+                        subtitle: "查看项目 License"
+                    )
                 }
 
-                // 开源软件声明
                 NavigationLink {
                     OpenSourceListView()
                 } label: {
-                    Label("开源软件声明", systemImage: "square.stack.3d.up.fill")
+                    SettingRow(
+                        systemImage: "square.stack.3d.up",
+                        tint: .mint,
+                        title: "开源软件声明",
+                        subtitle: "查看第三方依赖与来源"
+                    )
                 }
-            } header: {
-                Text("关于")
             }
         }
+        .listStyle(.insetGrouped)
         .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(
+            "选择金额",
+            isPresented: $showStore,
+            titleVisibility: .visible
+        ) {
+            ForEach(storeManager.products, id: \.id) { product in
+                Button("\(product.displayName) - \(product.displayPrice)") {
+                    Task {
+                        let success = await storeManager.purchase(product)
+                        if success {
+                            print("购买成功，可以更新本地余额或显示提示")
+                        } else {
+                            print("购买失败或取消")
+                        }
+                    }
+                }
+            }
+        }
+        .task {
+            await storeManager.loadProducts()
+        }
+    }
+
+    private var themeRow: some View {
+        Menu {
+            ForEach(AppTheme.allCases) { theme in
+                Button {
+                    selectedTheme = theme
+                } label: {
+                    HStack {
+                        Text(theme.rawValue)
+                        if theme == selectedTheme {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            SettingRow(
+                systemImage: "paintpalette",
+                tint: selectedTheme.color,
+                title: "主题色",
+                subtitle: "点击切换 App 的强调色"
+            ) {
+                ThemeMenuAccessory(theme: selectedTheme)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct SettingRow<Accessory: View>: View {
+    let systemImage: String
+    let tint: Color
+    let title: String
+    let subtitle: String?
+    @ViewBuilder var accessory: () -> Accessory
+
+    init(
+        systemImage: String,
+        tint: Color,
+        title: String,
+        subtitle: String? = nil,
+        @ViewBuilder accessory: @escaping () -> Accessory = { EmptyView() }
+    ) {
+        self.systemImage = systemImage
+        self.tint = tint
+        self.title = title
+        self.subtitle = subtitle
+        self.accessory = accessory
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            SettingRowIcon(systemImage: systemImage, tint: tint)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .foregroundStyle(.primary)
+
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            accessory()
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct SettingRowIcon: View {
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(tint.opacity(0.14))
+            .frame(width: 34, height: 34)
+            .overlay {
+                Image(systemName: systemImage)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(tint)
+            }
+    }
+}
+
+private struct ThemeValuePill: View {
+    let theme: AppTheme
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(theme.color)
+                .frame(width: 8, height: 8)
+
+            Text(theme.rawValue)
+                .font(.footnote.weight(.medium))
+        }
+        .foregroundStyle(theme.color)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(theme.color.opacity(0.12))
+        )
+    }
+}
+
+private struct ThemeMenuAccessory: View {
+    let theme: AppTheme
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ThemeValuePill(theme: theme)
+
+            Image(systemName: "chevron.up.chevron.down")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.tertiary)
+        }
+    }
+}
+
+private struct SettingExternalAccessory: View {
+    var body: some View {
+        Image(systemName: "arrow.up.right")
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.tertiary)
     }
 }
 
