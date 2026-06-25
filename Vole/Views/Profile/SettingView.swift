@@ -209,31 +209,22 @@ struct SettingView: View {
     }
 
     private var themeRow: some View {
-        Menu {
-            ForEach(AppTheme.allCases) { theme in
-                Button {
-                    selectedTheme = theme
-                } label: {
-                    HStack {
-                        Text(theme.rawValue)
-                        if theme == selectedTheme {
-                            Spacer()
-                            Image(systemName: "checkmark")
-                        }
-                    }
+        SettingRow(
+            systemImage: "paintpalette",
+            tint: selectedTheme.color,
+            title: "主题色",
+            subtitle: "点击切换 App 的强调色"
+        ) {
+            Picker("主题色", selection: $selectedTheme) {
+                ForEach(AppTheme.allCases) { theme in
+                    Text(theme.rawValue)
+                        .tag(theme)
                 }
             }
-        } label: {
-            SettingRow(
-                systemImage: "paintpalette",
-                tint: selectedTheme.color,
-                title: "主题色",
-                subtitle: "点击切换 App 的强调色"
-            ) {
-                ThemeMenuAccessory(theme: selectedTheme)
-            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .tint(selectedTheme.color)
         }
-        .buttonStyle(.plain)
     }
 }
 
@@ -317,20 +308,6 @@ private struct ThemeValuePill: View {
             Capsule()
                 .fill(theme.color.opacity(0.12))
         )
-    }
-}
-
-private struct ThemeMenuAccessory: View {
-    let theme: AppTheme
-
-    var body: some View {
-        HStack(spacing: 8) {
-            ThemeValuePill(theme: theme)
-
-            Image(systemName: "chevron.up.chevron.down")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.tertiary)
-        }
     }
 }
 
