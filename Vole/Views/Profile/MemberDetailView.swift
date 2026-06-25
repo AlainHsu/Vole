@@ -9,200 +9,254 @@ import Kingfisher
 import SwiftUI
 
 struct MemberDetailView: View {
-    @ObservedObject private var userManager: UserManager = .shared
     @Environment(\.openURL) private var openURL
     var member: Member?
 
     var body: some View {
         if let member = member {
-            // 顶部用户信息
-            Section {
-                HStack(spacing: 8) {
-                    if let avatarURL = member.getHighestQualityAvatar(),
-                        let url = URL(string: avatarURL)
-                    {
-                        KFImage(url)
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 128, height: 128)
-                            .clipShape(Circle())
-                            .padding(.top, 8)
-                    } else {
-                        Circle()
-                            .fill(Color.gray.opacity(0.4))
-                            .frame(width: 128, height: 128)
-                            .padding(.top, 8)
-                    }
-                    VStack(spacing: 8) {
-                        Text(member.username)
-                            .font(.title3)
-                            .fontWeight(.semibold)
-
-                        if let id = member.id {
-                            Text("第 \(id) 位会员")
-                                .foregroundColor(.secondary)
-                                .font(.subheadline)
-                        }
-
-                        if let tagline = member.tagline,
-                            !tagline.isEmpty
-                        {
-                            Text("\"\(tagline)\"")
-                                .foregroundColor(.secondary)
-                                .font(.subheadline)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                }
-                .listRowSeparator(.hidden)
-
-                if let bio = member.bio, !bio.isEmpty {
-                    Text(bio)
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
-            }
-
-            // 账户信息
-            Section {
-
-                if let created = member.created {
-                    HStack {
-                        Label("创建日期", systemImage: "calendar")
-                        Spacer()
-                        Text(formatDate(created))
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.trailing)
-                    }
-                }
-
-                if let location = member.location, !location.isEmpty {
-                    HStack {
-                        Label("所在地区", systemImage: "mappin.and.ellipse")
-                        Spacer()
-                        Text(location)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.trailing)
-                    }
-                }
-
-                if let website = member.website, !website.isEmpty {
-                    Button {
-                        if let url = URL(string: website) {
-                            openURL(url)
-                        }
-                    } label: {
-                        HStack {
-                            Label("个人网站", systemImage: "house")
-                            Spacer()
-                            Text(website)
-                                .lineLimit(1)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.trailing)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if let btc = member.btc, !btc.isEmpty {
-                    Button {
-                        if let url = URL(string: btc) {
-                            openURL(url)
-                        }
-                    } label: {
-                        HStack {
-                            Label(
-                                "BTC",
-                                systemImage: "bitcoinsign.ring.dashed"
-                            )
-                            Spacer()
-                            Text(btc)
-                                .lineLimit(1)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.trailing)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if let github = member.github, !github.isEmpty {
-                    Button {
-                        if let url = URL(
-                            string: "https://github.com/\(github)"
-                        ) {
-                            openURL(url)
-                        }
-                    } label: {
-                        HStack {
-                            Label("GitHub", systemImage: "network")
-                            Spacer()
-                            Text(github)
-                                .lineLimit(1)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.trailing)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if let twitter = member.twitter, !twitter.isEmpty {
-                    Button {
-                        if let url = URL(
-                            string: "https://x.com/\(twitter)"
-                        ) {
-                            openURL(url)
-                        }
-                    } label: {
-                        HStack {
-                            Label("Twitter", systemImage: "network")
-                            Spacer()
-                            Text(twitter)
-                                .lineLimit(1)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.trailing)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                if let psn = member.psn, !psn.isEmpty {
-                    Button {
-                        if let url = URL(
-                            string: "https://psnprofiles.com/\(psn)"
-                        ) {
-                            openURL(url)
-                        }
-                    } label: {
-                        HStack {
-                            Label("Twitter", systemImage: "network")
-                            Spacer()
-                            Text(psn)
-                                .lineLimit(1)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.trailing)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+            memberSections(for: member)
         } else {
+            loggedOutSection
+        }
+    }
+
+    @ViewBuilder
+    private func memberSections(for member: Member) -> some View {
+        headerSection(for: member)
+
+        let items = accountItems(for: member)
+        if !items.isEmpty {
             Section {
-                VStack(spacing: 8) {
-                    Image(systemName: "person.crop.circle")
-                        .font(.system(size: 50))
-                        .foregroundColor(.gray)
-                    Text("未登录")
-                        .font(.title3)
-                        .fontWeight(.semibold)
-                    Text("登录后可查看账户资料、Token 状态和个人信息")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
+                ForEach(items) { item in
+                    accountRow(item)
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding()
             }
         }
+    }
+
+    private func headerSection(for member: Member) -> some View {
+        Section {
+            HStack(spacing: 8) {
+                avatarView(for: member)
+
+                VStack(spacing: 8) {
+                    Text(member.username)
+                        .font(.title3)
+                        .fontWeight(.semibold)
+
+                    if let id = member.id {
+                        Text("第 \(id) 位会员")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+
+                    if let tagline = nonEmpty(member.tagline) {
+                        Text("\"\(tagline)\"")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .listRowSeparator(.hidden)
+
+            if let bio = nonEmpty(member.bio) {
+                Text(bio)
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func avatarView(for member: Member) -> some View {
+        if let avatarURL = member.getHighestQualityAvatar(),
+            let url = URL(string: avatarURL)
+        {
+            KFImage(url)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 128, height: 128)
+                .clipShape(Circle())
+                .padding(.top, 8)
+        } else {
+            Circle()
+                .fill(Color.gray.opacity(0.4))
+                .frame(width: 128, height: 128)
+                .padding(.top, 8)
+        }
+    }
+
+    @ViewBuilder
+    private func accountRow(_ item: MemberDetailItem) -> some View {
+        if let url = item.url {
+            Button {
+                openURL(url)
+            } label: {
+                accountRowContent(item)
+            }
+            .buttonStyle(.plain)
+        } else {
+            accountRowContent(item)
+        }
+    }
+
+    private func accountRowContent(_ item: MemberDetailItem) -> some View {
+        HStack(spacing: 12) {
+            rowLabel(title: item.title, systemImage: item.systemImage)
+            Spacer(minLength: 12)
+            Text(item.value)
+                .lineLimit(1)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func rowLabel(title: String, systemImage: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(Color.accentColor)
+            Text(title)
+                .foregroundStyle(.primary)
+        }
+    }
+
+    private func accountItems(for member: Member) -> [MemberDetailItem] {
+        var items: [MemberDetailItem] = []
+
+        if let created = member.created {
+            items.append(
+                MemberDetailItem(
+                    id: "created",
+                    title: "创建日期",
+                    systemImage: "calendar",
+                    value: formatDate(created)
+                )
+            )
+        }
+
+        appendAccountItem(
+            &items,
+            id: "location",
+            title: "所在地区",
+            systemImage: "mappin.and.ellipse",
+            value: member.location
+        )
+        appendAccountItem(
+            &items,
+            id: "website",
+            title: "个人网站",
+            systemImage: "house",
+            value: member.website,
+            urlString: member.website
+        )
+        appendAccountItem(
+            &items,
+            id: "btc",
+            title: "BTC",
+            systemImage: "bitcoinsign.ring.dashed",
+            value: member.btc,
+            urlString: member.btc
+        )
+        appendAccountItem(
+            &items,
+            id: "github",
+            title: "GitHub",
+            systemImage: "network",
+            value: member.github,
+            urlString: member.github.map { "https://github.com/\($0)" }
+        )
+        appendAccountItem(
+            &items,
+            id: "twitter",
+            title: "Twitter",
+            systemImage: "network",
+            value: member.twitter,
+            urlString: member.twitter.map { "https://x.com/\($0)" }
+        )
+        appendAccountItem(
+            &items,
+            id: "psn",
+            title: "PSN",
+            systemImage: "network",
+            value: member.psn,
+            urlString: member.psn.map { "https://psnprofiles.com/\($0)" }
+        )
+
+        return items
+    }
+
+    private func appendAccountItem(
+        _ items: inout [MemberDetailItem],
+        id: String,
+        title: String,
+        systemImage: String,
+        value: String?,
+        urlString: String? = nil
+    ) {
+        guard let value = nonEmpty(value) else { return }
+
+        items.append(
+            MemberDetailItem(
+                id: id,
+                title: title,
+                systemImage: systemImage,
+                value: value,
+                url: makeURL(from: urlString)
+            )
+        )
+    }
+
+    private func makeURL(from urlString: String?) -> URL? {
+        guard let urlString = nonEmpty(urlString) else { return nil }
+        return URL(string: urlString)
+    }
+
+    private func nonEmpty(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else { return nil }
+        return value
+    }
+
+    private var loggedOutSection: some View {
+        Section {
+            VStack(spacing: 8) {
+                Image(systemName: "person.crop.circle")
+                    .font(.system(size: 50))
+                    .foregroundColor(.gray)
+                Text("未登录")
+                    .font(.title3)
+                    .fontWeight(.semibold)
+                Text("登录后可查看账户资料、Token 状态和个人信息")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding()
+        }
+    }
+}
+
+private struct MemberDetailItem: Identifiable {
+    let id: String
+    let title: String
+    let systemImage: String
+    let value: String
+    let url: URL?
+
+    init(
+        id: String,
+        title: String,
+        systemImage: String,
+        value: String,
+        url: URL? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.systemImage = systemImage
+        self.value = value
+        self.url = url
     }
 }
 
