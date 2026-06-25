@@ -28,7 +28,7 @@ struct MemberView: View {
                         NavigationLink(
                             destination: TokenRenewPage(currentToken: token)
                         ) {
-                            ProfileCardRow(
+                            ProfileInfoRow(
                                 systemImage: "key.viewfinder",
                                 tint: token.needsRenewalWarning
                                     ? .orange : Color.accentColor,
@@ -48,7 +48,6 @@ struct MemberView: View {
                                 }
                             }
                         }
-                        .buttonStyle(.plain)
                         .contextMenu {
                             Button(
                                 "复制原始 Token",
@@ -57,7 +56,6 @@ struct MemberView: View {
                                 UIPasteboard.general.string = tokenStr
                             }
                         }
-                        .profileListRowCardStyle()
                     }
 
                     Section {

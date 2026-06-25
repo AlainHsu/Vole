@@ -32,7 +32,6 @@ struct MemberDetailView: View {
             Section("个人资料") {
                 ForEach(items) { item in
                     accountRow(item)
-                        .profileListRowCardStyle()
                 }
             }
         }
@@ -151,7 +150,7 @@ struct MemberDetailView: View {
     }
 
     private func accountRowContent(_ item: MemberDetailItem) -> some View {
-        ProfileCardRow(
+        ProfileInfoRow(
             systemImage: item.systemImage,
             tint: item.tint,
             title: item.title,
@@ -443,6 +442,58 @@ struct ProfileCardRow<Accessory: View>: View {
                 .stroke(Color.primary.opacity(0.05), lineWidth: 1)
         }
         .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+}
+
+struct ProfileInfoRow<Accessory: View>: View {
+    let systemImage: String
+    let tint: Color
+    let title: String
+    let subtitle: String?
+    @ViewBuilder let accessory: () -> Accessory
+
+    init(
+        systemImage: String,
+        tint: Color,
+        title: String,
+        subtitle: String? = nil,
+        @ViewBuilder accessory: @escaping () -> Accessory = { EmptyView() }
+    ) {
+        self.systemImage = systemImage
+        self.tint = tint
+        self.title = title
+        self.subtitle = subtitle
+        self.accessory = accessory
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(tint.opacity(0.14))
+                .frame(width: 32, height: 32)
+                .overlay {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(tint)
+                }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .foregroundStyle(.primary)
+
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            accessory()
+        }
+        .padding(.vertical, 2)
     }
 }
 
