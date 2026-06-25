@@ -135,63 +135,49 @@ struct DetailView: View {
                             }
                             .textCase(nil)
                     ) {
-                        // 标题
-                        if let title = topic.title {
-                            Button {
-                                if let url = URL(
-                                    string: topic.url ?? ""
-                                ) {
-                                    safariURL = url
-                                    showSafari = true
-                                }
-                            } label: {
-                                Text(title)
-                                    .font(.title)
-                                    .bold()
-                                    .foregroundColor(.primary)
-                                    .multilineTextAlignment(.leading)
-                                    .fixedSize(
-                                        horizontal: false,
-                                        vertical: true
-                                    )
-                                    .frame(
-                                        maxWidth: .infinity,
-                                        alignment: .leading
-                                    )
-                                    .contentShape(Rectangle())
+                        VStack(alignment: .leading, spacing: 16) {
+                            if let title = topic.title {
+                                topicTitleButton(title, urlString: topic.url)
                             }
-                            .buttonStyle(.plain)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        // 内容
-                        if let content = topic.content, !content.isEmpty {
-                            VStack(alignment: .leading, spacing: 12) {
-                                if content.isLikelyHTML {
-                                    HTMLContentNotice(
-                                        url: topic.url.flatMap(URL.init(string:)),
-                                        openURL: { url in
-                                            safariURL = url
-                                            showSafari = true
-                                        }
-                                    )
-                                }
 
-                                VoleMarkdownView(
-                                    content: content,
-                                    onMentionsChanged: nil,
-                                    onLinkAction: { action in
-                                        switch action {
-                                        case .mention(let username):
-                                            print("@\(username)")
-                                        case .topic(let id):
-                                            path.append(Route.topicId(id))
-                                        default:
-                                            break
-                                        }
+                            if let content = topic.content, !content.isEmpty {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    if content.isLikelyHTML {
+                                        HTMLContentNotice(
+                                            url: topic.url.flatMap(URL.init(string:)),
+                                            openURL: { url in
+                                                safariURL = url
+                                                showSafari = true
+                                            }
+                                        )
                                     }
-                                )
+
+                                    VoleMarkdownView(
+                                        content: content,
+                                        onMentionsChanged: nil,
+                                        onLinkAction: { action in
+                                            switch action {
+                                            case .mention(let username):
+                                                print("@\(username)")
+                                            case .topic(let id):
+                                                path.append(Route.topicId(id))
+                                            default:
+                                                break
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 12,
+                                leading: 6,
+                                bottom: 12,
+                                trailing: 6
+                            )
+                        )
                     }
 
                     if let supplements = topic.supplements,
@@ -368,9 +354,7 @@ struct DetailView: View {
                         showReportDialog = true
                     }
                     Button("在浏览器中打开", systemImage: "safari") {
-                        if let url = URL(string: shareURL) {
-                            openURL(url)
-                        }
+                        presentSafari(for: shareURL)
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -459,6 +443,28 @@ struct DetailView: View {
         }
         .padding(.horizontal, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func topicTitleButton(_ title: String, urlString: String?) -> some View {
+        Button {
+            presentSafari(for: urlString)
+        } label: {
+            Text(title)
+                .font(.system(size: 21, weight: .bold))
+                .foregroundColor(.primary)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .layoutPriority(1)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .accessibilityHint("打开主题原网页")
+    }
+
+    private func presentSafari(for urlString: String?) {
+        guard let urlString, let url = URL(string: urlString) else { return }
+        safariURL = url
+        showSafari = true
     }
 
     // 回话视图
