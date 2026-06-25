@@ -10,6 +10,7 @@ import ImageIO
 import Kingfisher
 import LinkPresentation
 import MarkdownView
+import QuickLook
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -21,7 +22,9 @@ enum LinkAction {
 
 struct VoleMarkdownView: View {
     @State var content: String
-    @State private var imagePreview: MarkdownImagePreview?
+    @State private var quickLookURLs: [URL] = []
+    @State private var selectedQuickLookURL: URL?
+    @State private var isPreparingImagePreview = false
 
     var onMentionsChanged: (([String]) -> Void)?
     var onLinkAction: ((LinkAction) -> Void)?  // 统一处理链接事件
@@ -47,9 +50,14 @@ struct VoleMarkdownView: View {
                 }
             }
         }
-            .fullScreenCover(item: $imagePreview) { preview in
-                MarkdownImagePreviewView(preview: preview)
+            .overlay {
+                if isPreparingImagePreview {
+                    ProgressView()
+                        .padding(14)
+                        .background(.regularMaterial, in: Circle())
+                }
             }
+            .quickLookPreview($selectedQuickLookURL, in: quickLookURLs)
             .task(id: content) { @MainActor in
                 onMentionsChanged?(renderedBlocks.mentions)
             }
@@ -121,105 +129,57 @@ struct VoleMarkdownView: View {
     @MainActor
     private func openImagePreview(
         url: URL,
+        image: KFCrossPlatformImage?,
+        sourceData: Data?,
         imageURLs: [URL]
     ) {
+        let urls = normalizedImageURLs(selected: url, imageURLs: imageURLs)
+        isPreparingImagePreview = MarkdownQuickLookImageExporter.cachedFileURL(for: url) == nil
+
+        Task(priority: .userInitiated) {
+            do {
+                let fileURL = try await MarkdownQuickLookImageExporter.fileURL(
+                    for: url,
+                    image: image,
+                    sourceData: sourceData
+                )
+
+                await MainActor.run {
+                    quickLookURLs = [fileURL]
+                    selectedQuickLookURL = fileURL
+                    isPreparingImagePreview = false
+                }
+
+                let allFileURLs = try await MarkdownQuickLookImageExporter.fileURLs(
+                    for: urls,
+                    preferredImage: image,
+                    preferredData: sourceData,
+                    preferredURL: url
+                )
+
+                await MainActor.run {
+                    quickLookURLs = allFileURLs
+                    selectedQuickLookURL = fileURL
+                }
+            } catch {
+                await MainActor.run {
+                    isPreparingImagePreview = false
+                    if UIApplication.shared.canOpenURL(url) {
+                        UIApplication.shared.open(url)
+                    }
+                }
+            }
+        }
+    }
+
+    private func normalizedImageURLs(selected url: URL, imageURLs: [URL]) -> [URL] {
         var urls = imageURLs.isEmpty ? [url] : imageURLs
         if !urls.contains(url) {
             urls.insert(url, at: 0)
         }
+
         var seenURLs = Set<URL>()
-        imagePreview = MarkdownImagePreview(
-            selectedURL: url,
-            imageURLs: urls.filter { seenURLs.insert($0).inserted }
-        )
-    }
-}
-
-private struct MarkdownImagePreview: Identifiable {
-    let id = UUID()
-    let selectedURL: URL
-    let imageURLs: [URL]
-}
-
-private struct MarkdownImagePreviewView: View {
-    let preview: MarkdownImagePreview
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var selectedURL: URL
-
-    init(preview: MarkdownImagePreview) {
-        self.preview = preview
-        _selectedURL = State(initialValue: preview.selectedURL)
-    }
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-
-            TabView(selection: $selectedURL) {
-                ForEach(preview.imageURLs, id: \.self) { url in
-                    MarkdownPreviewImage(url: url)
-                        .tag(url)
-                }
-            }
-            .tabViewStyle(
-                .page(
-                    indexDisplayMode: preview.imageURLs.count > 1
-                        ? .automatic
-                        : .never
-                )
-            )
-
-            VStack {
-                HStack {
-                    Spacer()
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.headline)
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding()
-
-                Spacer()
-            }
-        }
-        .statusBarHidden()
-    }
-}
-
-private struct MarkdownPreviewImage: View {
-    let url: URL
-
-    var body: some View {
-        Group {
-            if url.isGIF {
-                KFAnimatedImage(url)
-                    .configure { view in
-                        view.autoPlayAnimatedImage = true
-                        view.repeatCount = .infinite
-                        view.contentMode = .scaleAspectFit
-                    }
-                    .placeholder {
-                        ProgressView()
-                            .tint(.white)
-                    }
-            } else {
-                KFImage(url)
-                    .placeholder {
-                        ProgressView()
-                            .tint(.white)
-                    }
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        return urls.filter { seenURLs.insert($0).inserted }
     }
 }
 
@@ -536,7 +496,7 @@ private enum MarkdownLinkPreviewLoader {
 
 private struct TappableMarkdownImageRenderer: MarkdownImageRenderer {
     let imageURLs: [URL]
-    var openImagePreview: @MainActor (URL, [URL]) -> Void
+    var openImagePreview: @MainActor (URL, KFCrossPlatformImage?, Data?, [URL]) -> Void
 
     func makeBody(configuration: Configuration) -> some View {
         TappableMarkdownImage(
@@ -550,13 +510,20 @@ private struct TappableMarkdownImageRenderer: MarkdownImageRenderer {
 private struct TappableMarkdownImage: View {
     let url: URL
     let imageURLs: [URL]
-    var openImagePreview: @MainActor (URL, [URL]) -> Void
+    var openImagePreview: @MainActor (URL, KFCrossPlatformImage?, Data?, [URL]) -> Void
     @State private var imageSize: CGSize?
+    @State private var previewImage: KFCrossPlatformImage?
+    @State private var previewData: Data?
 
     init(
         url: URL,
         imageURLs: [URL],
-        openImagePreview: @escaping @MainActor (URL, [URL]) -> Void
+        openImagePreview: @escaping @MainActor (
+            URL,
+            KFCrossPlatformImage?,
+            Data?,
+            [URL]
+        ) -> Void
     ) {
         self.url = url
         self.imageURLs = imageURLs
@@ -590,7 +557,7 @@ private struct TappableMarkdownImage: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    openImagePreview(url, imageURLs)
+                    openImagePreview(url, previewImage, previewData, imageURLs)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: size.height, alignment: .leading)
@@ -623,7 +590,7 @@ private struct TappableMarkdownImage: View {
                 imagePlaceholder
             }
             .onSuccess { result in
-                handleImageLoaded(result.image, preserveExistingSize: true)
+                handleImageLoaded(result, preserveExistingSize: true)
             }
     }
 
@@ -633,7 +600,7 @@ private struct TappableMarkdownImage: View {
                 imagePlaceholder
             }
             .onSuccess { result in
-                handleImageLoaded(result.image, preserveExistingSize: false)
+                handleImageLoaded(result, preserveExistingSize: false)
             }
             .resizable()
             .aspectRatio(contentMode: .fit)
@@ -644,14 +611,33 @@ private struct TappableMarkdownImage: View {
             .frame(width: 44, height: 44)
     }
 
+    private func handleImageLoaded(_ result: RetrieveImageResult, preserveExistingSize: Bool) {
+        let sourceData = url.isAnimatedPreviewCandidate ? result.data() : nil
+        handleImageLoaded(
+            result.image,
+            sourceData: sourceData,
+            preserveExistingSize: preserveExistingSize
+        )
+    }
+
     private func handleImageLoaded(
         _ image: KFCrossPlatformImage,
+        sourceData: Data?,
         preserveExistingSize: Bool
     ) {
         MarkdownImageMetadata.store(image.size, for: url)
+        previewImage = image
+        if let sourceData {
+            previewData = sourceData
+        }
         if imageSize == nil || !preserveExistingSize {
             imageSize = image.size
         }
+        MarkdownQuickLookImageExporter.preheat(
+            url: url,
+            image: image,
+            sourceData: sourceData
+        )
     }
 
     @MainActor
@@ -729,6 +715,246 @@ private enum MarkdownImageMetadata {
     }
 }
 
+private enum MarkdownQuickLookImageExporter {
+    static func cachedFileURL(for url: URL) -> URL? {
+        for format in ImageExportFormat.allCases {
+            let fileURL = previewFileURL(for: url, format: format)
+            if FileManager.default.fileExists(atPath: fileURL.path) {
+                return fileURL
+            }
+        }
+        return nil
+    }
+
+    static func preheat(
+        url: URL,
+        image: KFCrossPlatformImage?,
+        sourceData: Data?
+    ) {
+        Task(priority: .utility) {
+            await MarkdownQuickLookImagePreheater.shared.preheat(
+                url: url,
+                image: image,
+                sourceData: sourceData
+            )
+        }
+    }
+
+    static func fileURLs(
+        for urls: [URL],
+        preferredImage: KFCrossPlatformImage?,
+        preferredData: Data?,
+        preferredURL: URL
+    ) async throws -> [URL] {
+        var exportedURLs: [URL] = []
+        var exportedSourceURLs = Set<URL>()
+
+        for url in urls {
+            guard exportedSourceURLs.insert(url).inserted else { continue }
+
+            if let fileURL = try? await fileURL(
+                for: url,
+                image: url == preferredURL ? preferredImage : nil,
+                sourceData: url == preferredURL ? preferredData : nil
+            ) {
+                exportedURLs.append(fileURL)
+            }
+        }
+
+        return exportedURLs
+    }
+
+    static func fileURL(
+        for url: URL,
+        image: KFCrossPlatformImage?,
+        sourceData: Data?
+    ) async throws -> URL {
+        if let cachedFileURL = cachedFileURL(for: url) {
+            return cachedFileURL
+        }
+
+        let resolvedSourceData = try await retrieveOriginalData(
+            for: url,
+            sourceData: sourceData
+        )
+        let exportFormat = ImageExportFormat.infer(from: resolvedSourceData, url: url)
+        let fileURL = previewFileURL(for: url, format: exportFormat)
+
+        if FileManager.default.fileExists(atPath: fileURL.path) {
+            return fileURL
+        }
+
+        if exportFormat.preservesAnimation {
+            try resolvedSourceData.write(to: fileURL, options: .atomic)
+            return fileURL
+        }
+
+        let exportImage: KFCrossPlatformImage
+        if let image {
+            exportImage = image
+        } else {
+            exportImage = try await retrieveImage(for: url)
+        }
+
+        guard let data = exportFormat.data(from: exportImage) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
+    private static func retrieveImage(for url: URL) async throws -> KFCrossPlatformImage {
+        let resource = KF.ImageResource(downloadURL: url)
+        return try await KingfisherManager.shared
+            .retrieveImage(with: resource)
+            .image
+    }
+
+    private static func retrieveOriginalData(
+        for url: URL,
+        sourceData: Data?
+    ) async throws -> Data {
+        if let sourceData {
+            return sourceData
+        }
+
+        if let cachedData = try kingfisherCachedData(for: url) {
+            return cachedData
+        }
+
+        let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad)
+        let (data, _) = try await URLSession.shared.data(for: request)
+        return data
+    }
+
+    private static func kingfisherCachedData(for url: URL) throws -> Data? {
+        guard let fileURL = ImageCache.default.cacheFileURLIfOnDisk(forKey: url.cacheKey) else {
+            return nil
+        }
+        return try Data(contentsOf: fileURL)
+    }
+
+    private static func previewFileURL(for url: URL, format: ImageExportFormat) -> URL {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VoleMarkdownQuickLookImages", isDirectory: true)
+
+        try? FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+
+        return directory
+            .appendingPathComponent(url.absoluteString.stableFileName)
+            .appendingPathExtension(format.fileExtension)
+    }
+}
+
+private actor MarkdownQuickLookImagePreheater {
+    static let shared = MarkdownQuickLookImagePreheater()
+
+    private var activeURLs = Set<URL>()
+
+    func preheat(
+        url: URL,
+        image: KFCrossPlatformImage?,
+        sourceData: Data?
+    ) async {
+        guard activeURLs.insert(url).inserted else { return }
+        defer { activeURLs.remove(url) }
+
+        guard MarkdownQuickLookImageExporter.cachedFileURL(for: url) == nil else {
+            return
+        }
+
+        _ = try? await MarkdownQuickLookImageExporter.fileURL(
+            for: url,
+            image: image,
+            sourceData: sourceData
+        )
+    }
+}
+
+private enum ImageExportFormat: CaseIterable {
+    case gif
+    case png
+    case jpeg
+    case webp
+    case bmp
+    case tiff
+
+    var fileExtension: String {
+        switch self {
+        case .gif: return "gif"
+        case .png: return "png"
+        case .jpeg: return "jpg"
+        case .webp: return "webp"
+        case .bmp: return "bmp"
+        case .tiff: return "tiff"
+        }
+    }
+
+    var preservesAnimation: Bool {
+        switch self {
+        case .gif, .webp:
+            return true
+        default:
+            return false
+        }
+    }
+
+    func data(from image: KFCrossPlatformImage) -> Data? {
+        switch self {
+        case .gif:
+            return image.kf.gifRepresentation()
+        case .png:
+            return image.kf.pngRepresentation()
+        case .jpeg:
+            return image.kf.jpegRepresentation(compressionQuality: 1.0)
+        case .webp, .bmp, .tiff:
+            return image.kf.pngRepresentation()
+        }
+    }
+
+    static func infer(from data: Data, url: URL) -> ImageExportFormat {
+        if let source = CGImageSourceCreateWithData(data as CFData, nil),
+           let type = CGImageSourceGetType(source),
+           let utType = UTType(type as String) {
+            switch utType {
+            case .gif:
+                return .gif
+            case .png:
+                return .png
+            case .jpeg:
+                return .jpeg
+            case .webP:
+                return .webp
+            case .bmp:
+                return .bmp
+            case .tiff:
+                return .tiff
+            default:
+                break
+            }
+        }
+
+        switch url.pathExtension.lowercased() {
+        case "gif":
+            return .gif
+        case "jpg", "jpeg":
+            return .jpeg
+        case "webp":
+            return .webp
+        case "bmp":
+            return .bmp
+        case "tif", "tiff":
+            return .tiff
+        default:
+            return .png
+        }
+    }
+}
+
 private enum MarkdownImageDataLoader {
     static func data(for url: URL) async throws -> Data {
         let request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad)
@@ -738,6 +964,17 @@ private enum MarkdownImageDataLoader {
 }
 
 private extension URL {
+    var isAnimatedPreviewCandidate: Bool {
+        let normalized = absoluteString.lowercased()
+        let ext = pathExtension.lowercased()
+        return ext == "gif"
+            || ext == "webp"
+            || normalized.contains(".gif?")
+            || normalized.contains(".webp?")
+            || normalized.hasSuffix(".gif")
+            || normalized.hasSuffix(".webp")
+    }
+
     var isGIF: Bool {
         let normalized = absoluteString.lowercased()
         return pathExtension.lowercased() == "gif"
@@ -765,6 +1002,15 @@ private extension URL {
         }
 
         return Int(components[2])
+    }
+}
+
+private extension String {
+    var stableFileName: String {
+        let hash = unicodeScalars.reduce(UInt64(5381)) { result, scalar in
+            ((result << 5) &+ result) &+ UInt64(scalar.value)
+        }
+        return String(format: "%016llx", hash)
     }
 }
 
