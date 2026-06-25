@@ -181,13 +181,14 @@ struct SearchResultView: View {
         switch selectedCategory {
         case .topic:
             ForEach(results) { res in
-                SearchRowView(result: res)
-                    .onAppear {
-                        if res.id == results.last?.id {
-                            Task { await loadNextPage() }
-                        }
+                SearchRowView(result: res) {
+                    path.append(Route.topicId(res.source.id))
+                }
+                .onAppear {
+                    if res.id == results.last?.id {
+                        Task { await loadNextPage() }
                     }
-                    .onTapGesture { path.append(Route.topicId(res.source.id)) }
+                }
             }
 
         case .node:
@@ -604,7 +605,6 @@ struct SearchResultView: View {
 
         return req
     }
-
     private func setTimeRange(_ range: SearchTimeRange) {
         guard filterOptions.timeRange != range else { return }
         filterOptions.timeRange = range

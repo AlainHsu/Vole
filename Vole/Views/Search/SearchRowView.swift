@@ -5,6 +5,7 @@
 //  Created by 杨权 on 11/24/25.
 //
 
+import Kingfisher
 import SwiftSoup
 import SwiftUI
 
@@ -15,46 +16,71 @@ struct SearchRowView: View {
     }
 
     let result: SoV2exHit
+    let onTap: () -> Void
 
     @StateObject private var nodeManager = NodeManager.shared
 
+    private var topicURL: String? {
+        SiteConfiguration.makeSiteURL(from: "/t/\(result.source.id)")?
+            .absoluteString
+    }
+
+    private var nodeTitle: String {
+        nodeManager.getNode(result.source.node)?.title ?? "\(result.source.node)"
+    }
+
+    private var highlightSnippet: String? {
+        result.highlight?.content?.first
+            ?? result.highlight?.postscriptContent?.first
+            ?? result.highlight?.replyContent?.first
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                // 作者
+                if let avatarURL = result.source.memberAvatar {
+                    avatarView(avatarURL)
+                }
+
                 Text(result.source.member)
                     .font(.subheadline)
-                    .foregroundColor(.primary)
+                    .foregroundColor(.secondary)
+                    .bold()
+
                 Spacer()
+
+                Text(nodeTitle)
+                    .font(.callout)
+                    .foregroundColor(.accentColor)
+                    .lineLimit(1)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(
+                            cornerRadius: 8,
+                            style: .continuous
+                        )
+                        .fill(Color.accentColor.opacity(0.15))
+                    )
             }
 
-            // 标题
             highlightedText(
                 from: result.highlight?.title?.first,
                 fallback: result.source.title,
-                font: .headline
+                font: .headline,
+                defaultColor: .primary
             )
+            .lineLimit(2)
 
-            // 内容摘要
             highlightedText(
                 from: highlightSnippet,
                 fallback: result.source.content,
-                font: .body
+                font: .body,
+                defaultColor: .secondary
             )
-                .lineLimit(2)
-                .foregroundStyle(.secondary)
+            .lineLimit(3)
 
-            // 底部信息：节点 + 时间 + 评论数量
             HStack {
-                let node = nodeManager.getNode(result.source.node)
-                // 节点
-                Text(node?.title ?? "\(result.source.node)")
-                    .font(.subheadline)
-                    .foregroundColor(.accentColor)
-                    .lineLimit(1)
-                Spacer()
-
-                // 时间
                 TimelineView(.everyMinute) { _ in
                     Text(
                         DateConverter.relativeTimeString(
@@ -64,48 +90,99 @@ struct SearchRowView: View {
                     .font(.caption)
                     .foregroundColor(.secondary)
                 }
-                // 评论数
-                HStack(spacing: 4) {
-                    Image(systemName: "ellipsis.bubble")
-                        .foregroundColor(.secondary)
-                    Text("\(result.source.replies)")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                }
+
+                Spacer()
+
+                topicMetric(result.source.replies, systemImage: "ellipsis.bubble")
             }
         }
         .contentShape(Rectangle())
+        .onTapGesture {
+            onTap()
+        }
+        .contextMenu {
+            if let topicURL {
+                Button {
+                    UIPasteboard.general.string = topicURL
+                    let generator = UINotificationFeedbackGenerator()
+                    generator.notificationOccurred(.success)
+                } label: {
+                    Label("复制链接", systemImage: "link")
+                }
 
+                ShareLink(item: topicURL) {
+                    Label("分享", systemImage: "square.and.arrow.up")
+                }
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if let topicURL {
+                ShareLink(item: topicURL) {
+                    Label("分享", systemImage: "square.and.arrow.up")
+                }
+                .tint(.accentColor)
+            }
+        }
     }
 
-    private var highlightSnippet: String? {
-        result.highlight?.content?.first
-            ?? result.highlight?.postscriptContent?.first
-            ?? result.highlight?.replyContent?.first
+    @ViewBuilder
+    private func avatarView(_ avatarURL: String) -> some View {
+        if let url = URL(string: avatarURL) {
+            KFImage(url)
+                .placeholder {
+                    Color.gray
+                }
+                .resizable()
+                .scaledToFill()
+                .frame(width: 24, height: 24)
+                .clipShape(Circle())
+        } else {
+            Circle()
+                .fill(Color.gray)
+                .frame(width: 24, height: 24)
+        }
+    }
+
+    private func topicMetric(
+        _ value: Int,
+        systemImage: String,
+        color: Color = .secondary
+    ) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .foregroundStyle(color)
+            Text("\(value)")
+                .foregroundStyle(.secondary)
+        }
+        .font(.subheadline)
     }
 
     private func highlightedText(
         from html: String?,
         fallback: String,
-        font: Font
+        font: Font,
+        defaultColor: Color
     ) -> Text {
         let segments = highlightSegments(from: html)
         guard !segments.isEmpty else {
-            return Text(fallback).font(font)
+            return Text(fallback).font(font).foregroundColor(defaultColor)
         }
 
         let text = segments.reduce(Text("")) { partial, segment in
-            partial + segmentText(segment)
+            partial + segmentText(segment, defaultColor: defaultColor)
         }
         return text.font(font)
     }
 
-    private func segmentText(_ segment: HighlightSegment) -> Text {
+    private func segmentText(
+        _ segment: HighlightSegment,
+        defaultColor: Color
+    ) -> Text {
         let text = Text(segment.text)
         if segment.isHighlighted {
             return text.foregroundColor(.accentColor)
         }
-        return text
+        return text.foregroundColor(defaultColor)
     }
 
     private func highlightSegments(from html: String?) -> [HighlightSegment] {
@@ -190,7 +267,6 @@ struct SearchRowView: View {
 
 #Preview {
     let mockResult = SoV2exHit(
-
         source: SoV2exTopic(
             id: 100000,
             title: "请教一个关于 Swift 结构化并发的问题",
@@ -198,10 +274,16 @@ struct SearchRowView: View {
             member: "Swift_Coder",
             created: "2025-11-24T09:00:00Z",
             replies: 12,
-            node: 56,
+            node: 56
         ),
-        highlight: nil,
-        id: "100000",
+        highlight: SoV2exHighlight(
+            title: ["请教一个关于 <em>Swift</em> 结构化并发的问题"],
+            content: ["最近在尝试使用 Actor 隔离状态，但在跨 Actor 调用时遇到了死锁问题，有大佬能提供一些调试 <em>Swift</em> 思路吗？"],
+            postscriptContent: nil,
+            replyContent: nil
+        ),
+        id: "100000"
     )
-    SearchRowView(result: mockResult)
+
+    SearchRowView(result: mockResult) {}
 }

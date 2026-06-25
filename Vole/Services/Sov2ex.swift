@@ -47,9 +47,15 @@ struct SoV2exTopic: Codable {
     let title: String
     let content: String
     let member: String
+    var memberAvatar: String? = nil
     let created: String  // ISO8601 格式字符串
     let replies: Int
     let node: Int
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, content, member, created, replies, node
+        case memberAvatar = "member_avatar"
+    }
 }
 
 /// 高亮字段 (对应 highlight)
