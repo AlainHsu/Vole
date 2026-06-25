@@ -96,10 +96,6 @@ struct NodeCollectionView: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(collection.color.opacity(0.1))
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(collection.color.opacity(0.22), lineWidth: 1)
-        }
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
