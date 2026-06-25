@@ -127,17 +127,25 @@ struct MemberView: View {
     }
 }
 
-private struct ProfileProminentAction: View {
+struct ProfileProminentAction: View {
     let title: String
     var subtitle: String? = nil
     let systemImage: String
     let tint: Color
     let filled: Bool
+    var isLoading: Bool = false
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: systemImage)
-                .font(.system(size: 18, weight: .semibold))
+            if isLoading {
+                ProgressView()
+                    .tint(filled ? .white : tint)
+                    .frame(width: 20, height: 20)
+            } else {
+                Image(systemName: systemImage)
+                    .font(.system(size: 18, weight: .semibold))
+                    .frame(width: 20, height: 20)
+            }
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)

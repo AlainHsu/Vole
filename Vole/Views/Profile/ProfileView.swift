@@ -105,137 +105,282 @@ struct ProfileView: View {
 }
 
 struct TokenInputPage: View {
+    @Environment(\.dismiss) private var dismiss
     @Binding var token: String
-    var onValidate: (String) async throws -> Token  // 校验 Token，返回过期时间
+    var onValidate: (String) async throws -> Token
     var onLogin: (String) async throws -> Void  // 登录
 
     @State private var errorMessage: String?
     @State private var isLoading = false
-    @State private var tokenExpiry: Int?  // 校验通过后保存过期时间
-    @State private var loginFailed = false
+    @State private var validatedToken: Token?
+    @FocusState private var isTokenFieldFocused: Bool
 
     var body: some View {
-        VStack(spacing: 0) {
-            // 顶部标题
-            VStack(spacing: 12) {
-                Text("使用 Token 登录")
-                    .font(.largeTitle)
-                    .bold()
-                Text("以更加安全的方式访问你账户中的数据")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
-            }
-            .padding(.top, 60)
+        NavigationStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    loginHeaderCard
+                    tokenFieldCard
 
-            Spacer()
-
-            // 输入区域
-            VStack(spacing: 16) {
-                VStack(spacing: 8) {
-                    TextField("请输入 Token", text: $token)
-                        .padding()
-                        .background(Color(.secondarySystemBackground))
-                        .cornerRadius(12)
-                        .textInputAutocapitalization(.never)
-                        .disableAutocorrection(true)
-                        .padding(.horizontal, 30)
-
-                    if let errorMessage = errorMessage {
-                        Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundColor(.red)
-                            .multilineTextAlignment(.leading)
-                            .padding(.horizontal, 34)
-                    }
-
-                    // 校验通过显示过期时间
-                    if let expiry = tokenExpiry {
-                        Text("你的 Token 有效期剩余 \(expiry) 天")
-                            .font(.footnote)
-                            .foregroundColor(.green)
-                            .padding(.horizontal, 34)
-                    }
-                }
-
-                // 获取 token 提示
-                Label {
-                    Text(
-                        "如何免费获取 [Personal Access Token](https://www.v2ex.com/help/personal-access-token)（用于登录）"
-                    )
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                } icon: {
-                    Image(systemName: "info.circle")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                }
-                .multilineTextAlignment(.center)
-            }
-
-            Spacer()
-
-            // 底部按钮
-            Button(action: handleAction) {
-                if isLoading {
-                    ProgressView()
-                        .progressViewStyle(
-                            CircularProgressViewStyle(tint: .white)
+                    if let errorMessage {
+                        statusCard(
+                            title: "操作失败",
+                            subtitle: errorMessage,
+                            systemImage: "exclamationmark.circle",
+                            tint: .red
                         )
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                } else {
-                    Text(buttonTitle)
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
+                    } else if let validatedToken {
+                        statusCard(
+                            title: "Token 校验通过",
+                            subtitle: validationMessage(for: validatedToken),
+                            systemImage: "checkmark.seal",
+                            tint: .green
+                        )
+                    }
+
+                    helpCard
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 16)
+                .padding(.bottom, 120)
+            }
+            .background(Color(.systemGroupedBackground))
+            .scrollDismissesKeyboard(.interactively)
+            .navigationTitle("Token 登录")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("关闭") {
+                        dismiss()
+                    }
+                    .disabled(isLoading)
+                }
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    if validatedToken != nil {
+                        ProfileStatusBadge(text: "已校验", tint: .green)
+                    }
                 }
             }
-            .background(
-                (token.isEmpty || isLoading)
-                    ? Color.gray.opacity(0.3) : Color.accentColor
-            )
-            .foregroundColor(.white)
-            .cornerRadius(14)
-            .padding(.horizontal, 20)
-            .padding(.bottom, 24)
-            .disabled(token.isEmpty || isLoading)
-
-            Spacer()
+            .safeAreaInset(edge: .bottom) {
+                actionBar
+            }
+            .interactiveDismissDisabled(isLoading)
         }
-        .background(Color(.systemBackground))
-        .ignoresSafeArea(edges: .bottom)
+        .onChange(of: token) { oldValue, newValue in
+            guard oldValue != newValue else { return }
+            validatedToken = nil
+            errorMessage = nil
+        }
     }
 
-    // 按钮文字根据状态变化
     private var buttonTitle: String {
-        if loginFailed {
-            return "重试"
-        } else if tokenExpiry != nil {
-            return "下一步"
+        if validatedToken != nil {
+            return errorMessage == nil ? "登录并同步资料" : "重试登录"
         } else {
-            return "校验 Token"
+            return errorMessage == nil ? "校验 Token" : "重新校验"
         }
+    }
+
+    private var buttonSubtitle: String {
+        validatedToken == nil
+            ? "先验证有效期与权限，再继续登录"
+            : "同步你的账户资料并完成登录"
+    }
+
+    private var buttonIcon: String {
+        validatedToken == nil ? "checkmark.shield" : "person.badge.key"
+    }
+
+    private var sanitizedToken: String {
+        token.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var loginHeaderCard: some View {
+        VStack(spacing: 14) {
+            Circle()
+                .fill(Color.accentColor.opacity(0.12))
+                .frame(width: 78, height: 78)
+                .overlay {
+                    Image(systemName: "key.viewfinder")
+                        .font(.system(size: 30, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+
+            VStack(spacing: 8) {
+                Text("使用 Token 登录")
+                    .font(.title2.weight(.bold))
+
+                Text("以更安全的方式访问你的账户数据，整个流程会先校验 Token，再同步账户资料。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            ProfileStatusBadge(
+                text: validatedToken == nil ? "第一步：校验 Token" : "第二步：登录账户",
+                tint: validatedToken == nil ? Color.accentColor : .green
+            )
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 24)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color.accentColor.opacity(0.18),
+                            Color(.secondarySystemGroupedBackground),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(Color.accentColor.opacity(0.10), lineWidth: 1)
+        }
+    }
+
+    private var tokenFieldCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Personal Access Token")
+                .font(.headline)
+
+            HStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.14))
+                    .frame(width: 38, height: 38)
+                    .overlay {
+                        Image(systemName: "key")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Color.accentColor)
+                    }
+
+                TextField("请输入 Token", text: $token)
+                    .textInputAutocapitalization(.never)
+                    .disableAutocorrection(true)
+                    .font(.system(.body, design: .monospaced))
+                    .focused($isTokenFieldFocused)
+
+                if token.isEmpty {
+                    Button("粘贴") {
+                        token = UIPasteboard.general.string ?? ""
+                        isTokenFieldFocused = false
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                } else {
+                    Button {
+                        token = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.tertiary)
+                            .font(.title3)
+                    }
+                }
+            }
+
+            Text(validatedToken == nil ? "输入后点击下方按钮校验 Token。" : "校验已通过，现在可以继续登录。")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+        }
+    }
+
+    private func statusCard(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        tint: Color
+    ) -> some View {
+        ProfileCardRow(
+            systemImage: systemImage,
+            tint: tint,
+            title: title,
+            subtitle: subtitle
+        )
+    }
+
+    private var helpCard: some View {
+        Link(destination: URL(string: "https://www.v2ex.com/help/personal-access-token")!) {
+            ProfileCardRow(
+                systemImage: "questionmark.circle",
+                tint: .indigo,
+                title: "如何免费获取 Personal Access Token",
+                subtitle: "查看官方说明并为当前设备创建登录凭证"
+            ) {
+                Image(systemName: "arrow.up.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var actionBar: some View {
+        VStack(spacing: 0) {
+            Divider()
+                .opacity(0.35)
+
+            Button(action: handleAction) {
+                ProfileProminentAction(
+                    title: buttonTitle,
+                    subtitle: buttonSubtitle,
+                    systemImage: buttonIcon,
+                    tint: Color.accentColor,
+                    filled: true,
+                    isLoading: isLoading
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(sanitizedToken.isEmpty || isLoading)
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+        }
+        .background(.ultraThinMaterial)
+    }
+
+    private func validationMessage(for token: Token) -> String {
+        if let days = token.goodForDays {
+            return "你的 Token 有效期剩余 \(days) 天，已经可以继续登录。"
+        }
+        return "Token 可用，已经可以继续登录。"
     }
 
     private func handleAction() {
+        let candidate = sanitizedToken
+        guard !candidate.isEmpty else { return }
+
+        if candidate != token {
+            token = candidate
+        }
+
         errorMessage = nil
         isLoading = true
-        loginFailed = false
+        isTokenFieldFocused = false
 
         Task {
             do {
-                if tokenExpiry == nil {
-                    // 第一步：校验 Token
-                    let t = try await onValidate(token)
+                if validatedToken == nil {
+                    let validated = try await onValidate(candidate)
                     await MainActor.run {
-                        tokenExpiry = t.goodForDays
+                        validatedToken = validated
                         isLoading = false
                     }
                 } else {
-                    // 第二步：登录
-                    try await onLogin(token)
+                    try await onLogin(candidate)
                     await MainActor.run {
                         isLoading = false
                     }
@@ -244,17 +389,9 @@ struct TokenInputPage: View {
                 await MainActor.run {
                     errorMessage = error.localizedDescription
                     isLoading = false
-                    loginFailed = true
                 }
             }
         }
-    }
-
-    private func formattedExpiry(_ timestamp: Int) -> String {
-        let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .full
-        return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
 
@@ -271,56 +408,28 @@ struct TokenRenewPage: View {
     var body: some View {
         List {
             Section {
-                if let token = currentToken.token {
-                    HStack {
-                        Text("Token")
-                        Spacer(minLength: 12)
-                        Text(token)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .contextMenu {
-                                Button(
-                                    "复制原始 Token",
-                                    systemImage: "document.on.document"
-                                ) {
-                                    UIPasteboard.general.string = token
-                                }
-                            }
-                    }
+                tokenOverviewCard
+                    .profileListRowCardStyle(top: 12, bottom: 8)
+            }
+
+            if let token = currentToken.token {
+                Section("当前凭证") {
+                    tokenValueCard(token)
+                        .profileListRowCardStyle()
                 }
-                if let created = currentToken.created {
-                    LabeledContent(
-                        "创建时间",
-                        value: formatDate(created)
-                    )
-                }
-                if let lastUsed = currentToken.lastUsed {
-                    LabeledContent(
-                        "上次使用时间",
-                        value: formatDate(lastUsed)
-                    )
-                }
-                if let expiration = currentToken.expiration {
-                    LabeledContent(
-                        "有效期",
-                        value: "\(expiration / 86_400) 天"
-                    )
-                }
-                if let remainingDays = currentToken.remainingDays {
-                    LabeledContent("剩余天数") {
-                        Text("\(remainingDays) 天")
-                            .foregroundStyle(
-                                remainingDays <= 0
-                                    ? .red
-                                    : currentToken.needsRenewalWarning
-                                        ? .orange : .secondary
-                            )
-                            .fontWeight(
-                                currentToken.needsRenewalWarning
-                                    ? .semibold : .regular
-                            )
+            }
+
+            let items = tokenInfoItems
+            if !items.isEmpty {
+                Section("详情") {
+                    ForEach(items) { item in
+                        ProfileCardRow(
+                            systemImage: item.systemImage,
+                            tint: item.tint,
+                            title: item.title,
+                            subtitle: item.value
+                        )
+                        .profileListRowCardStyle()
                     }
                 }
             }
@@ -329,23 +438,32 @@ struct TokenRenewPage: View {
                 Button {
                     activeAlert = .confirmation
                 } label: {
-                    HStack {
-                        Spacer()
-                        if isRenewing {
-                            ProgressView()
-                        } else {
-                            Label("续期 Token", systemImage: "arrow.clockwise")
-                                .fontWeight(.semibold)
-                        }
-                        Spacer()
-                    }
+                    ProfileProminentAction(
+                        title: "续期 Token",
+                        subtitle: "创建一个新的 180 天凭证并替换当前保存的 Token",
+                        systemImage: "arrow.clockwise",
+                        tint: renewTint,
+                        filled: true,
+                        isLoading: isRenewing
+                    )
                 }
+                .buttonStyle(.plain)
                 .disabled(isRenewing)
-            } footer: {
-                Text("将创建一个有效期 180 天、拥有 everything 权限的新 Token，并替换当前设备保存的 Token。")
+                .profileListRowCardStyle(top: 10, bottom: 8)
+
+                ProfileCardRow(
+                    systemImage: "info.circle",
+                    tint: .orange,
+                    title: "续期说明",
+                    subtitle: "将创建一个有效期 180 天、拥有 everything 权限的新 Token，并替换当前设备保存的 Token。"
+                )
+                .profileListRowCardStyle(bottom: 18)
             }
         }
-        .navigationTitle("Token 详情")
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("Token 管理")
         .navigationBarTitleDisplayMode(.inline)
         .alert(item: $activeAlert) { alert in
             alert.content(renew: renewToken)
@@ -357,6 +475,217 @@ struct TokenRenewPage: View {
 
     private var currentToken: Token {
         userManager.token ?? initialToken
+    }
+
+    private var statusTint: Color {
+        if let remainingDays = currentToken.remainingDays {
+            if remainingDays <= 0 {
+                return .red
+            }
+            if currentToken.needsRenewalWarning {
+                return .orange
+            }
+            return Color.accentColor
+        }
+        return Color.accentColor
+    }
+
+    private var renewTint: Color {
+        currentToken.needsRenewalWarning ? .orange : Color.accentColor
+    }
+
+    private var statusText: String {
+        if let remainingDays = currentToken.remainingDays {
+            if remainingDays <= 0 {
+                return "已过期"
+            }
+            return currentToken.needsRenewalWarning ? "即将过期" : "正常"
+        }
+        return "待同步"
+    }
+
+    private var statusDescription: String {
+        if let remainingDays = currentToken.remainingDays {
+            return "当前 Token 还剩 \(remainingDays) 天有效期。"
+        }
+        return "详细信息会在同步完成后显示。"
+    }
+
+    private var tokenOverviewCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 12) {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(statusTint.opacity(0.14))
+                    .frame(width: 48, height: 48)
+                    .overlay {
+                        Image(systemName: "key.viewfinder")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundStyle(statusTint)
+                    }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Token 状态")
+                        .font(.headline)
+                    Text(statusDescription)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer(minLength: 12)
+
+                ProfileStatusBadge(text: statusText, tint: statusTint)
+            }
+
+            if let token = currentToken.token {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("当前凭证")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.secondary)
+
+                    Text(maskedToken(token))
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            statusTint.opacity(0.16),
+                            Color(.secondarySystemGroupedBackground),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .stroke(statusTint.opacity(0.10), lineWidth: 1)
+        }
+    }
+
+    private func tokenValueCard(_ token: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("原始 Token", systemImage: "document.on.document")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                Spacer()
+
+                Text("长按可复制")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text(token)
+                .font(.system(.footnote, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+        }
+        .contextMenu {
+            Button(
+                "复制原始 Token",
+                systemImage: "document.on.document"
+            ) {
+                UIPasteboard.general.string = token
+            }
+        }
+    }
+
+    private var tokenInfoItems: [TokenInfoItem] {
+        var items: [TokenInfoItem] = []
+
+        if let created = currentToken.created {
+            items.append(
+                TokenInfoItem(
+                    id: "created",
+                    title: "创建时间",
+                    systemImage: "calendar",
+                    tint: .indigo,
+                    value: formatDate(created)
+                )
+            )
+        }
+
+        if let lastUsed = currentToken.lastUsed {
+            items.append(
+                TokenInfoItem(
+                    id: "last-used",
+                    title: "上次使用时间",
+                    systemImage: "clock.arrow.circlepath",
+                    tint: .teal,
+                    value: formatDate(lastUsed)
+                )
+            )
+        }
+
+        if let expiration = currentToken.expiration {
+            items.append(
+                TokenInfoItem(
+                    id: "expiration",
+                    title: "有效期",
+                    systemImage: "hourglass",
+                    tint: .blue,
+                    value: "\(expiration / 86_400) 天"
+                )
+            )
+        }
+
+        if let remainingDays = currentToken.remainingDays {
+            items.append(
+                TokenInfoItem(
+                    id: "remaining-days",
+                    title: "剩余天数",
+                    systemImage: "timer",
+                    tint: statusTint,
+                    value: "\(remainingDays) 天"
+                )
+            )
+        }
+
+        if let totalUsed = currentToken.totalUsed {
+            items.append(
+                TokenInfoItem(
+                    id: "total-used",
+                    title: "累计使用次数",
+                    systemImage: "chart.bar",
+                    tint: .green,
+                    value: "\(totalUsed)"
+                )
+            )
+        }
+
+        if let scope = currentToken.scope, !scope.isEmpty {
+            items.append(
+                TokenInfoItem(
+                    id: "scope",
+                    title: "权限范围",
+                    systemImage: "lock.shield",
+                    tint: .orange,
+                    value: scope
+                )
+            )
+        }
+
+        return items
     }
 
     private func renewToken() {
@@ -372,6 +701,14 @@ struct TokenRenewPage: View {
             isRenewing = false
         }
     }
+}
+
+private struct TokenInfoItem: Identifiable {
+    let id: String
+    let title: String
+    let systemImage: String
+    let tint: Color
+    let value: String
 }
 
 private enum TokenAlert: Identifiable {
