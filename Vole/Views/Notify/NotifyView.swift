@@ -77,16 +77,6 @@ struct NotifyView: View {
                 systemImage: "bell.slash",
                 description: Text("回复、提到、收藏和感谢都会在这里出现")
             )
-        } else if notifyManager.notifications.isEmpty {
-            if notifyManager.isLoading {
-                loadingStateView
-            } else {
-                ContentUnavailableView(
-                    "还没有通知",
-                    systemImage: "bell.badge",
-                    description: Text("有人和你互动时，这里会自动更新")
-                )
-            }
         } else {
             notificationList
         }
@@ -127,7 +117,21 @@ struct NotifyView: View {
         .refreshable {
             await notifyManager.refresh()
         }
+        .overlay {
+            listStateOverlay
+        }
         .animation(.snappy, value: notifyManager.hasPendingRefresh)
+    }
+
+    @ViewBuilder
+    private var listStateOverlay: some View {
+        if notifyManager.notifications.isEmpty {
+            if notifyManager.isLoading {
+                loadingStateView
+            } else {
+                emptyStateView
+            }
+        }
     }
 
     private var loadingStateView: some View {
@@ -141,6 +145,19 @@ struct NotifyView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
+        .allowsHitTesting(false)
+    }
+
+    private var emptyStateView: some View {
+        ContentUnavailableView(
+            "还没有通知",
+            systemImage: "bell.badge",
+            description: Text("有人和你互动时，这里会自动更新")
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
+        .allowsHitTesting(false)
     }
 
     @ViewBuilder
