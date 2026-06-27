@@ -102,8 +102,8 @@ struct VoleMarkdownView: View {
         renderer: TappableMarkdownImageRenderer
     ) -> some View {
         MarkdownView(markdown)
-            .markdownImageRenderer(renderer, forURLScheme: "http")
-            .markdownImageRenderer(renderer, forURLScheme: "https")
+            .markdownElementRenderer(.image(renderer, urlScheme: "http"))
+            .markdownElementRenderer(.image(renderer, urlScheme: "https"))
             .markdownTableStyle(HorizontalScrollableMarkdownTableStyle())
             .textSelection(.enabled)
     }
