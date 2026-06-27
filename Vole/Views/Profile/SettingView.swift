@@ -490,67 +490,130 @@ struct LicenseContentView: View {
 
 // 开源软件列表视图
 struct OpenSourceListView: View {
-    // 状态变量的类型为 OpenSourceItem
-    @State private var items: [OpenSourceItem] = []
-
     var body: some View {
         List {
-            // 使用 Link 打开外部 URL
-            ForEach(items) { item in
-                Link(
-                    destination: URL(string: item.url) ?? URL(
-                        string: "about:blank"
-                    )!
-                ) {
-                    HStack {
-                        Text(item.name)
-                            .foregroundColor(.primary)
-                        Spacer()
-                        Image(systemName: "link")  // 外部链接图标
-                            .foregroundColor(.secondary)
-                            .font(.caption)
+            Section {
+                ForEach(OpenSourceItem.defaultItems) { item in
+                    Link(destination: item.url) {
+                        OpenSourceRow(item: item)
                     }
+                    .buttonStyle(.plain)
                 }
+            } header: {
+                Text("第三方项目")
+            } footer: {
+                Text("感谢这些开源项目为 Vole 提供基础能力。")
             }
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemGroupedBackground))
         .navigationTitle("开源声明")
-        .onAppear {
-            loadOpenSourceProjects()
-        }
-    }
-
-    // MARK: - 加载 JSON 逻辑
-    private func loadOpenSourceProjects() {
-        // 尝试从 Bundle 中查找 opensource.json 文件
-        guard
-            let url = Bundle.main.url(
-                forResource: "opensource",
-                withExtension: "json"
-            )
-        else {
-            print("Error: opensource.json file not found in bundle.")
-            return
-        }
-
-        do {
-            let data = try Data(contentsOf: url)
-            // 使用 JSONDecoder 解析数据，类型为 OpenSourceItem
-            let decodedItems = try JSONDecoder().decode(
-                [OpenSourceItem].self,
-                from: data
-            )
-            self.items = decodedItems
-        } catch {
-            print("Error decoding or loading opensource.json: \(error)")
-        }
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-struct OpenSourceItem: Identifiable, Codable {
-    // 使用 name 作为 id
+struct OpenSourceItem: Identifiable {
     var id: String { name }
     let name: String
-    let url: String
+    let repository: String
+    let url: URL
+    let license: String
+    let systemImage: String
+    let tint: Color
+}
+
+private extension OpenSourceItem {
+    static let defaultItems: [OpenSourceItem] = [
+        OpenSourceItem(
+            name: "MarkdownView",
+            repository: "LiYanan2004/MarkdownView",
+            url: URL(string: "https://github.com/LiYanan2004/MarkdownView")!,
+            license: "MIT",
+            systemImage: "text.alignleft",
+            tint: .blue
+        ),
+        OpenSourceItem(
+            name: "SwiftSoup",
+            repository: "scinfu/SwiftSoup",
+            url: URL(string: "https://github.com/scinfu/SwiftSoup")!,
+            license: "MIT",
+            systemImage: "curlybraces",
+            tint: .orange
+        ),
+        OpenSourceItem(
+            name: "Kingfisher",
+            repository: "onevcat/Kingfisher",
+            url: URL(string: "https://github.com/onevcat/Kingfisher")!,
+            license: "MIT",
+            systemImage: "photo",
+            tint: .indigo
+        ),
+        OpenSourceItem(
+            name: "SOV2EX",
+            repository: "bynil/sov2ex",
+            url: URL(string: "https://github.com/bynil/sov2ex")!,
+            license: "MIT",
+            systemImage: "magnifyingglass",
+            tint: .teal
+        ),
+        OpenSourceItem(
+            name: "V2exAPI",
+            repository: "isaced/V2exAPI",
+            url: URL(string: "https://github.com/isaced/V2exAPI")!,
+            license: "MIT",
+            systemImage: "network",
+            tint: .green
+        ),
+    ]
+}
+
+private struct OpenSourceRow: View {
+    let item: OpenSourceItem
+
+    var body: some View {
+        HStack(spacing: 14) {
+            SettingRowIcon(systemImage: item.systemImage, tint: item.tint)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(item.name)
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    OpenSourceLicenseBadge(text: item.license)
+                }
+
+                Text(item.repository)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 12)
+
+            SettingExternalAccessory()
+        }
+        .padding(.vertical, 6)
+        .contentShape(Rectangle())
+    }
+}
+
+private struct OpenSourceLicenseBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(Color.accentColor.opacity(0.12))
+            )
+    }
 }
 
 // 预览

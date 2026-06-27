@@ -19,30 +19,8 @@ final class NodeCollectionManager: ObservableObject {
     private let customSaveKey = "home_node_collections_v1"
 
     init() {
-        loadDefaultCollections()
+        collections = Self.defaultCollections
         loadCustomCollections()
-    }
-
-    // MARK: - 默认合集
-    private func loadDefaultCollections() {
-        guard
-            let url = Bundle.main.url(
-                forResource: "nodeCollection",
-                withExtension: "json"
-            )
-        else {
-            print("❌ nodes.json not found")
-            return
-        }
-        do {
-            let data = try Data(contentsOf: url)
-            collections = try JSONDecoder().decode(
-                [NodeCollection].self,
-                from: data
-            )
-        } catch {
-            print("❌ Failed to decode nodes.json: \(error)")
-        }
     }
 
     // MARK: - CRUD 集合
@@ -180,4 +158,74 @@ final class NodeCollectionManager: ObservableObject {
         else { return }
         customCollections = value
     }
+}
+
+private extension NodeCollectionManager {
+    static let defaultCollections: [NodeCollection] = [
+        NodeCollection(
+            name: "技术",
+            systemIcon: "hammer.fill",
+            colorHex: "indigo",
+            nodeNames: ["programmer", "cloud", "idev", "rss", "nas", "android"]
+        ),
+        NodeCollection(
+            name: "创意",
+            systemIcon: "sparkles",
+            colorHex: "green",
+            nodeNames: ["create", "design", "ideas"]
+        ),
+        NodeCollection(
+            name: "好玩",
+            systemIcon: "puzzlepiece.fill",
+            colorHex: "cyan",
+            nodeNames: ["share", "bb", "music", "movie", "travel", "afterdark"]
+        ),
+        NodeCollection(
+            name: "Apple",
+            systemIcon: "apple.logo",
+            colorHex: "gray",
+            nodeNames: [
+                "apple",
+                "iphone",
+                "ipad",
+                "mbp",
+                "macos",
+                "ios",
+                "appletv",
+                "idev",
+            ]
+        ),
+        NodeCollection(
+            name: "酷工作",
+            systemIcon: "briefcase.fill",
+            colorHex: "brown",
+            nodeNames: ["jobs", "cv", "career", "meet", "outsourcing", "remote"]
+        ),
+        NodeCollection(
+            name: "交易",
+            systemIcon: "creditcard.fill",
+            colorHex: "teal",
+            nodeNames: ["all4all", "exchange", "free", "dn", "tuan"]
+        ),
+        NodeCollection(
+            name: "城市",
+            systemIcon: "building.2.fill",
+            colorHex: "blue",
+            nodeNames: [
+                "life",
+                "beijing",
+                "shanghai",
+                "shenzhen",
+                "guangzhou",
+                "hangzhou",
+                "chengdu",
+            ]
+        ),
+        NodeCollection(
+            name: "问与答",
+            systemIcon: "questionmark.bubble.fill",
+            colorHex: "blue",
+            nodeNames: ["qna"]
+        ),
+    ]
 }
