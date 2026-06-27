@@ -5,7 +5,6 @@
 //  Created by 杨权 on 9/8/25.
 //
 
-import Kingfisher
 import SwiftUI
 import UIKit
 
@@ -38,16 +37,12 @@ struct ProfileView: View {
                 }
             )
         }
-        // 2. 将异步检查和静默登录逻辑放在 .task 修饰符中
-        // 当 View 出现在屏幕上时，如果已有 Token 但没有用户信息，则自动刷新
         .task {
             await checkAndRefreshUser()
         }
     }
 
-    // 把 init 里的逻辑抽离成这个方法
-    func checkAndRefreshUser() async {
-        // 检查是否需要静默登录：有 Token 但内存中没有 Member 数据
+    private func checkAndRefreshUser() async {
         if let t = UserManager.shared.token,
             let token = t.token,
             userManager.currentMember == nil
@@ -59,14 +54,11 @@ struct ProfileView: View {
                 print("✅ 静默登录成功")
             } catch {
                 print("❌ 静默登录失败：", error)
-                // 可选：如果 Token 失效了，可以在这里退回到步骤 2
-                // withAnimation { step = 2 }
             }
         }
     }
-    
-    // 第一步：校验 Token 有效性
-    func validateToken(_ token: String) async throws -> Token {
+
+    private func validateToken(_ token: String) async throws -> Token {
         let response = try await V2exAPI.shared.token(token: token)
         if let r = response, let validatedToken = r.result, r.success {
             let persistedToken = validatedToken.withRawToken(token)
@@ -83,12 +75,11 @@ struct ProfileView: View {
         }
     }
 
-    // 第二步：登录
-    func loginWithToken(_ token: String) async throws {
+    private func loginWithToken(_ token: String) async throws {
         let response = try await V2exAPI.shared.member(token: token)
-        if let r = response, let memeber = r.result, r.success {
-            userManager.saveMember(memeber)
-            print(memeber)
+        if let r = response, let member = r.result, r.success {
+            userManager.saveMember(member)
+            print(member)
         } else {
             throw NSError(
                 domain: "LoginError",
@@ -102,6 +93,46 @@ struct ProfileView: View {
 
     private func logout() {
         userManager.clear()
+    }
+}
+
+private enum TokenLoginPhase {
+    case validation
+    case login
+
+    var buttonTitle: String {
+        switch self {
+        case .validation: return "校验 Token"
+        case .login: return "登录并同步资料"
+        }
+    }
+
+    var retryButtonTitle: String {
+        switch self {
+        case .validation: return "重新校验"
+        case .login: return "重试登录"
+        }
+    }
+
+    var buttonSubtitle: String {
+        switch self {
+        case .validation: return "先验证有效期与权限，再继续登录"
+        case .login: return "同步你的账户资料并完成登录"
+        }
+    }
+
+    var buttonIcon: String {
+        switch self {
+        case .validation: return "checkmark.shield"
+        case .login: return "person.badge.key"
+        }
+    }
+
+    var badgeText: String {
+        switch self {
+        case .validation: return "第一步：校验 Token"
+        case .login: return "第二步：登录账户"
+        }
     }
 }
 
@@ -153,22 +184,24 @@ struct TokenInputPage: View {
         }
     }
 
+    private var loginPhase: TokenLoginPhase {
+        validatedToken == nil ? .validation : .login
+    }
+
+    private var canSubmit: Bool {
+        !sanitizedToken.isEmpty && !isLoading
+    }
+
     private var buttonTitle: String {
-        if validatedToken != nil {
-            return errorMessage == nil ? "登录并同步资料" : "重试登录"
-        } else {
-            return errorMessage == nil ? "校验 Token" : "重新校验"
-        }
+        errorMessage == nil ? loginPhase.buttonTitle : loginPhase.retryButtonTitle
     }
 
     private var buttonSubtitle: String {
-        validatedToken == nil
-            ? "先验证有效期与权限，再继续登录"
-            : "同步你的账户资料并完成登录"
+        loginPhase.buttonSubtitle
     }
 
     private var buttonIcon: String {
-        validatedToken == nil ? "checkmark.shield" : "person.badge.key"
+        loginPhase.buttonIcon
     }
 
     private var sanitizedToken: String {
@@ -207,7 +240,7 @@ struct TokenInputPage: View {
             }
 
             ProfileStatusBadge(
-                text: validatedToken == nil ? "第一步：校验 Token" : "第二步：登录账户",
+                text: loginPhase.badgeText,
                 tint: validatedToken == nil ? Color.accentColor : .green
             )
         }
@@ -254,22 +287,7 @@ struct TokenInputPage: View {
                     .font(.system(.body, design: .monospaced))
                     .focused($isTokenFieldFocused)
 
-                if token.isEmpty {
-                    Button("粘贴") {
-                        token = UIPasteboard.general.string ?? ""
-                        isTokenFieldFocused = false
-                    }
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Color.accentColor)
-                } else {
-                    Button {
-                        token = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.tertiary)
-                            .font(.title3)
-                    }
-                }
+                tokenInputAccessory
             }
 
             if errorMessage == nil && validatedToken == nil {
@@ -288,6 +306,26 @@ struct TokenInputPage: View {
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(tokenFieldTint.opacity(errorMessage == nil && validatedToken == nil ? 0.08 : 0.18), lineWidth: 1)
+        }
+    }
+
+    @ViewBuilder
+    private var tokenInputAccessory: some View {
+        if token.isEmpty {
+            Button("粘贴") {
+                token = UIPasteboard.general.string ?? ""
+                isTokenFieldFocused = false
+            }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Color.accentColor)
+        } else {
+            Button {
+                token = ""
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.tertiary)
+                    .font(.title3)
+            }
         }
     }
 
@@ -362,27 +400,21 @@ struct TokenInputPage: View {
     }
 
     private var actionBar: some View {
-        VStack(spacing: 0) {
-            Divider()
-                .opacity(0.35)
-
-            Button(action: handleAction) {
-                ProfileProminentAction(
-                    title: buttonTitle,
-                    subtitle: buttonSubtitle,
-                    systemImage: buttonIcon,
-                    tint: Color.accentColor,
-                    filled: true,
-                    isLoading: isLoading
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(sanitizedToken.isEmpty || isLoading)
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 8)
+        Button(action: handleAction) {
+            ProfileProminentAction(
+                title: buttonTitle,
+                subtitle: buttonSubtitle,
+                systemImage: buttonIcon,
+                tint: Color.accentColor,
+                filled: true,
+                isLoading: isLoading
+            )
         }
-        .background(.ultraThinMaterial)
+        .buttonStyle(.plain)
+        .disabled(!canSubmit)
+        .padding(.horizontal, 16)
+        .padding(.top, 12)
+        .padding(.bottom, 8)
     }
 
     private func validationMessage(for token: Token) -> String {
@@ -404,15 +436,17 @@ struct TokenInputPage: View {
         isLoading = true
         isTokenFieldFocused = false
 
+        let phase = loginPhase
         Task {
             do {
-                if validatedToken == nil {
+                switch phase {
+                case .validation:
                     let validated = try await onValidate(candidate)
                     await MainActor.run {
                         validatedToken = validated
                         isLoading = false
                     }
-                } else {
+                case .login:
                     try await onLogin(candidate)
                     await MainActor.run {
                         isLoading = false
@@ -698,81 +732,64 @@ struct TokenRenewPage: View {
     }
 
     private var tokenInfoItems: [TokenInfoItem] {
-        var items: [TokenInfoItem] = []
-
-        if let created = currentToken.created {
-            items.append(
+        [
+            currentToken.created.map {
                 TokenInfoItem(
                     id: "created",
                     title: "创建时间",
                     systemImage: "calendar",
                     tint: .indigo,
-                    value: formatDate(created)
+                    value: formatDate($0)
                 )
-            )
-        }
-
-        if let lastUsed = currentToken.lastUsed {
-            items.append(
+            },
+            currentToken.lastUsed.map {
                 TokenInfoItem(
                     id: "last-used",
                     title: "上次使用时间",
                     systemImage: "clock.arrow.circlepath",
                     tint: .teal,
-                    value: formatDate(lastUsed)
+                    value: formatDate($0)
                 )
-            )
-        }
-
-        if let expiration = currentToken.expiration {
-            items.append(
+            },
+            currentToken.expiration.map {
                 TokenInfoItem(
                     id: "expiration",
                     title: "有效期",
                     systemImage: "hourglass",
                     tint: .blue,
-                    value: "\(expiration / 86_400) 天"
+                    value: "\($0 / 86_400) 天"
                 )
-            )
-        }
-
-        if let remainingDays = currentToken.remainingDays {
-            items.append(
+            },
+            currentToken.remainingDays.map {
                 TokenInfoItem(
                     id: "remaining-days",
                     title: "剩余天数",
                     systemImage: "timer",
                     tint: statusTint,
-                    value: "\(remainingDays) 天"
+                    value: "\($0) 天"
                 )
-            )
-        }
-
-        if let totalUsed = currentToken.totalUsed {
-            items.append(
+            },
+            currentToken.totalUsed.map {
                 TokenInfoItem(
                     id: "total-used",
                     title: "累计使用次数",
                     systemImage: "chart.bar",
                     tint: .green,
-                    value: "\(totalUsed)"
+                    value: "\($0)"
                 )
-            )
-        }
-
-        if let scope = currentToken.scope, !scope.isEmpty {
-            items.append(
-                TokenInfoItem(
+            },
+            currentToken.scope.flatMap { scope in
+                guard !scope.isEmpty else { return nil }
+                return TokenInfoItem(
                     id: "scope",
                     title: "权限范围",
                     systemImage: "lock.shield",
                     tint: .orange,
                     value: scope
                 )
-            )
-        }
-
-        return items
+            },
+        ]
+        .compactMap { $0 }
     }
 
     private func renewToken() {
@@ -840,17 +857,25 @@ private enum TokenAlert: Identifiable {
 }
 
 func maskedToken(_ token: String) -> String {
-    guard token.count > 8 else { return token }  // 不足8位直接返回原始token
-    let start = token.prefix(4)
-    let end = token.suffix(4)
+    let visibleCount = 4
+    guard token.count > visibleCount * 2 else { return token }
+
+    let start = token.prefix(visibleCount)
+    let end = token.suffix(visibleCount)
     return "\(start)****\(end)"
 }
 
 func formatDate(_ timestamp: Int) -> String {
     let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
-    let formatter = DateFormatter()
-    formatter.dateFormat = "yyyy-MM-dd"  // 年-月-日
-    return formatter.string(from: date)
+    return ProfileDateFormatters.day.string(from: date)
+}
+
+private enum ProfileDateFormatters {
+    static let day: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
 }
 
 #Preview {
