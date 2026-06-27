@@ -39,14 +39,7 @@ struct MemberDetailView: View {
 
     private func headerCard(for member: Member) -> some View {
         VStack(spacing: 18) {
-            ZStack(alignment: .bottomTrailing) {
-                avatarView(for: member)
-
-                if member.pro == 1 {
-                    ProfileStatusBadge(text: "PRO", tint: .orange, compact: true)
-                        .offset(x: -6, y: -6)
-                }
-            }
+            avatarView(for: member)
 
             VStack(spacing: 8) {
                 Text(member.username)
@@ -269,6 +262,10 @@ struct MemberDetailView: View {
         return value
     }
 
+    private func isPro(_ member: Member) -> Bool {
+        (member.pro ?? 0) > 0
+    }
+
     private var loggedOutSection: some View {
         Section {
             VStack(spacing: 14) {
@@ -327,12 +324,13 @@ struct MemberDetailView: View {
             )
         }
 
-        if member.pro == 1 {
+        if isPro(member) {
             chips.append(
                 HeaderChip(
                     id: "pro",
                     text: "V2EX Pro",
-                    tint: .orange
+                    systemImage: "rosette",
+                    tint: .yellow
                 )
             )
         }
@@ -341,9 +339,16 @@ struct MemberDetailView: View {
     }
 
     private func headerChip(_ chip: HeaderChip) -> some View {
-        Text(chip.text)
-            .font(.footnote.weight(.medium))
-            .foregroundStyle(chip.tint)
+        HStack(spacing: 5) {
+            if let systemImage = chip.systemImage {
+                Image(systemName: systemImage)
+                    .imageScale(.small)
+            }
+
+            Text(chip.text)
+        }
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(chip.tint)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
             .background(
@@ -381,6 +386,7 @@ private struct MemberDetailItem: Identifiable {
 private struct HeaderChip: Identifiable {
     let id: String
     let text: String
+    var systemImage: String? = nil
     let tint: Color
 }
 
@@ -499,11 +505,19 @@ struct ProfileInfoRow<Accessory: View>: View {
 
 struct ProfileStatusBadge: View {
     let text: String
+    var systemImage: String? = nil
     let tint: Color
     var compact: Bool = false
 
     var body: some View {
-        Text(text)
+        HStack(spacing: compact ? 4 : 5) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .imageScale(.small)
+            }
+
+            Text(text)
+        }
             .font(compact ? .caption2.weight(.bold) : .caption.weight(.bold))
             .foregroundStyle(tint)
             .padding(.horizontal, compact ? 8 : 10)
@@ -535,7 +549,8 @@ extension View {
         location: "陕西",
         tagline: "NS 巫师3 真好玩",
         bio: "我是一名爱打游戏，爱编程、喜欢打羽毛球的INTP人格",
-        created: 1
+        created: 1,
+        pro: 1
     )
     MemberDetailView(member: member)
 }

@@ -53,12 +53,12 @@ struct ReplyRowView: View {
                         .foregroundColor(.secondary)
                         .bold()
                     if topic.member?.username == username {
-                        Image(systemName: "star.circle.fill")
-                            .foregroundColor(.yellow)
+                        Image(systemName: "person.fill")
+                            .foregroundColor(.accentColor)
                             .imageScale(.small)
                     }
                     if let pro = reply.member.pro, pro > 0 {
-                        Image(systemName: "crown.fill")
+                        Image(systemName: "rosette")
                             .foregroundColor(.yellow)
                             .imageScale(.small)
                     }
