@@ -8,12 +8,19 @@
 import Kingfisher
 import SwiftUI
 
+private typealias ReplyConversation = [(reply: Reply, floor: Int)]
+private typealias ReplyMentionMap = [Int: Set<String>]
+private let replyMentionRegex = try! NSRegularExpression(
+    pattern: "@([A-Za-z0-9_]+)"
+)
+
 struct DetailView: View {
     let topicId: Int?
     @State var topic: Topic?
 
-    @State private var allMentions: [Int: [String]] = [:]
-    @State private var selectedReply: Reply? = nil
+    @State private var selectedConversation: ReplyConversation?
+    @State private var selectedConversationReplyId: Int?
+    @State private var conversationByReplyId: [Int: ReplyConversation] = [:]
     @State private var showSafari = false
     @State private var safariURL: URL? = nil
     @State private var showUserInfo = false
@@ -30,7 +37,7 @@ struct DetailView: View {
     @State var isLoading = false
     var filteredReplies: [Reply]? {
         guard let r = replies else { return nil }
-        return r.filter { !blockManager.isBlocked($0.member.username) }
+        return visibleReplies(from: r)
     }
 
     @Environment(\.openURL) private var openURL
@@ -41,8 +48,8 @@ struct DetailView: View {
         ZStack {
             if let topic = topic {
                 // 浮层对话视图
-                if let reply = selectedReply {
-                    conversationView(reply, topic)
+                if let selectedConversation {
+                    conversationView(selectedConversation, topic)
                 }
 
                 List {
@@ -140,78 +147,9 @@ struct DetailView: View {
                             }
                         }
                     }
-                    // 评论区
-                    if isLoading {
-                        HStack {
-                            Spacer()
-                            ProgressView("评论加载中")
-                            Spacer()
-                        }
-                        .listRowBackground(Color.clear)
-                    } else if let replies = filteredReplies {
-                        if replies.isEmpty {
-                            VStack {
-                                Text("暂无评论，快来抢沙发吧~")
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-                            .frame(maxWidth: .infinity)
-                            .listRowBackground(Color.clear)
-                        } else {
-                            Section(
-                                header: Text(
-                                    replies.count > 0
-                                        ? "评论(\(replies.count))" : "评论"
-                                )
-                                .font(.headline)
-                                .foregroundColor(.secondary)
-                            ) {
-                                ForEach(
-                                    Array((replies).enumerated()),
-                                    id: \.1.id
-                                ) { index, reply in
-                                    ReplyRowView(
-                                        path: $path,
-                                        topic: topic,
-                                        reply: reply,
-                                        floor: index
-                                    )
-                                    .contentShape(Rectangle())
-                                    .onTapGesture {
-                                        withAnimation(
-                                            .spring(dampingFraction: 0.6)
-                                        ) {
-                                            selectedReply = reply
-                                        }
-                                    }
-                                    .swipeActions(
-                                        edge: .trailing,
-                                        allowsFullSwipe: true
-                                    ) {
-                                        Button {
-                                            UIPasteboard.general.string =
-                                                replies[index].content
-
-                                            let generator =
-                                                UINotificationFeedbackGenerator()
-                                            generator.notificationOccurred(
-                                                .success
-                                            )
-                                        } label: {
-                                            Label(
-                                                "复制",
-                                                systemImage: "doc.on.doc"
-                                            )
-                                        }
-                                        .tint(.accentColor)
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    commentsSection(for: topic)
 
                 }
-                .disabled(selectedReply != nil)
                 .refreshable {
                     let id =  topic.id
                     await withTaskGroup(of: Void.self) { group in
@@ -338,6 +276,9 @@ struct DetailView: View {
                 }
             }
             Button("取消", role: .cancel) {}
+        }
+        .onChange(of: blockManager.blockedUsernames) { _, _ in
+            rebuildConversationCacheFromCurrentReplies()
         }
     }
 
@@ -541,29 +482,182 @@ struct DetailView: View {
         showSafari = true
     }
 
-    // 回话视图
     @ViewBuilder
-    private func conversationView(_ reply: Reply, _ topic: Topic) -> some View {
-        ZStack {
-            // 全屏背景模糊
-            Color.clear
-                .background(.ultraThinMaterial)
-                .ignoresSafeArea()
-
-            // 浮层内容
-            ScrollView {
-                LazyVStack(spacing: 0) {
+    private func commentsSection(for topic: Topic) -> some View {
+        if isLoading {
+            Section {
+                commentsLoadingRow
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: 0,
+                            leading: 16,
+                            bottom: 0,
+                            trailing: 16
+                        )
+                    )
+            } header: {
+                commentsSectionHeader(count: nil)
+            }
+        } else if let replies = filteredReplies {
+            if replies.isEmpty {
+                Section {
+                    commentsEmptyRow
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: 16,
+                                bottom: 0,
+                                trailing: 16
+                            )
+                        )
+                } header: {
+                    commentsSectionHeader(count: 0)
+                }
+            } else {
+                Section {
                     ForEach(
-                        conversation(for: reply),
-                        id: \.0.id
-                    ) {
-                        r,
-                        floor in
+                        Array(replies.enumerated()),
+                        id: \.element.id
+                    ) { index, reply in
+                        let conversation =
+                            conversationByReplyId[reply.id]
+                            ?? [(reply: reply, floor: index)]
+                        let hasConversation = conversation.count > 1
+
                         ReplyRowView(
                             path: $path,
                             topic: topic,
-                            reply: r,
-                            floor: floor
+                            reply: reply,
+                            floor: index,
+                            showsConversationIndicator: hasConversation
+                        )
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if hasConversation {
+                                withAnimation(.spring(dampingFraction: 0.6)) {
+                                    selectedConversationReplyId = reply.id
+                                    selectedConversation = conversation
+                                }
+                            }
+                        }
+                        .swipeActions(
+                            edge: .trailing,
+                            allowsFullSwipe: true
+                        ) {
+                            Button {
+                                copyReplyContent(reply.content)
+                            } label: {
+                                Label("复制", systemImage: "doc.on.doc")
+                            }
+                            .tint(.accentColor)
+                        }
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: 16,
+                                bottom: 0,
+                                trailing: 16
+                            )
+                        )
+                    }
+                } header: {
+                    commentsSectionHeader(count: replies.count)
+                }
+            }
+        }
+    }
+
+    private func commentsSectionHeader(count: Int?) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bubble.left.and.bubble.right.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+
+            Text("评论")
+                .font(.headline)
+                .foregroundStyle(.primary)
+
+            if let count {
+                Text("\(count)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(Color.accentColor.opacity(0.12))
+                    )
+            }
+        }
+        .textCase(nil)
+        .padding(.top, 4)
+    }
+
+    private var commentsLoadingRow: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+
+            Text("评论加载中")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 18)
+    }
+
+    private var commentsEmptyRow: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.system(size: 28, weight: .medium))
+                .foregroundStyle(.tertiary)
+
+            VStack(spacing: 4) {
+                Text("暂无评论")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                Text("快来抢沙发吧")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
+    private func copyReplyContent(_ content: String) {
+        UIPasteboard.general.string = content
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    // 对话视图
+    @ViewBuilder
+    private func conversationView(
+        _ conversation: ReplyConversation,
+        _ topic: Topic
+    ) -> some View {
+        ZStack {
+            Color.clear
+                .background(.ultraThinMaterial)
+                .ignoresSafeArea()
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    dismissConversation()
+                }
+
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(
+                        conversation,
+                        id: \.reply.id
+                    ) { item in
+                        ReplyRowView(
+                            path: $path,
+                            topic: topic,
+                            reply: item.reply,
+                            floor: item.floor,
+                            showsConversationIndicator: false
                         )
                         .padding()
                         Divider()
@@ -573,14 +667,19 @@ struct DetailView: View {
             }
             .contentShape(Rectangle())
             .onTapGesture {
-                withAnimation(.spring(dampingFraction: 0.6)) {
-                    selectedReply = nil
-                }
+                dismissConversation()
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .transition(.opacity)
         .zIndex(1)
+    }
+
+    private func dismissConversation() {
+        withAnimation(.easeOut(duration: 0.16)) {
+            selectedConversation = nil
+            selectedConversationReplyId = nil
+        }
     }
 
     @ViewBuilder
@@ -655,17 +754,19 @@ struct DetailView: View {
         }
     }
 
-    // 获取当前点击回复的对话列表，并返回实际楼层
-    private func conversation(for reply: Reply) -> [(Reply, Int)] {
-        guard let replies = filteredReplies else { return [] }
+    private func conversation(
+        for reply: Reply,
+        in replies: [Reply],
+        mentionsByReplyId: ReplyMentionMap
+    ) -> ReplyConversation {
         guard let idx = replies.firstIndex(where: { $0.id == reply.id }) else {
-            return [(reply, 0)]
+            return [(reply: reply, floor: 0)]
         }
 
         let currentUser = reply.member.username
-        let mentionedUsers = extractMentionedUsers(from: reply.content)
+        let mentionedUsers = mentionsByReplyId[reply.id, default: []]
 
-        var conversation: [(Reply, Int)] = []
+        var conversation: [(reply: Reply, floor: Int)] = []
 
         if !mentionedUsers.isEmpty {
             // 倒序遍历，收集自己 + 被提及用户的回复
@@ -674,35 +775,76 @@ struct DetailView: View {
                 if r.member.username == currentUser
                     || mentionedUsers.contains(r.member.username)
                 {
-                    conversation.append((r, i))
+                    conversation.append((reply: r, floor: i))
                 }
             }
             return conversation.reversed()
         } else {
             // 没有提及用户：表示是发表者自己发的
             // 从当前楼层往后遍历，收集所有回复了当前用户的评论
-            conversation.append((reply, idx))  // 先加自己
+            conversation.append((reply: reply, floor: idx))
             for i in (idx + 1)..<replies.count {
                 let r = replies[i]
-                let rMentions = extractMentionedUsers(from: r.content)
+                let rMentions = mentionsByReplyId[r.id, default: []]
                 if rMentions.contains(currentUser) {
-                    conversation.append((r, i))
+                    conversation.append((reply: r, floor: i))
                 }
             }
             return conversation
         }
     }
 
+    private func visibleReplies(from replies: [Reply]) -> [Reply] {
+        replies.filter { !blockManager.isBlocked($0.member.username) }
+    }
+
+    private func rebuildConversationCacheFromCurrentReplies() {
+        guard let replies else {
+            conversationByReplyId = [:]
+            selectedConversation = nil
+            return
+        }
+
+        rebuildConversationCache(for: visibleReplies(from: replies))
+    }
+
+    private func rebuildConversationCache(for replies: [Reply]) {
+        let mentionsByReplyId = Dictionary(
+            uniqueKeysWithValues: replies.map {
+                ($0.id, extractMentionedUsers(from: $0.content))
+            }
+        )
+        var cache: [Int: ReplyConversation] = [:]
+
+        for reply in replies {
+            cache[reply.id] = conversation(
+                for: reply,
+                in: replies,
+                mentionsByReplyId: mentionsByReplyId
+            )
+        }
+
+        conversationByReplyId = cache
+        if let selectedConversationReplyId {
+            let updatedConversation = cache[selectedConversationReplyId]
+            if let updatedConversation, updatedConversation.count > 1 {
+                selectedConversation = updatedConversation
+            } else {
+                selectedConversation = nil
+                self.selectedConversationReplyId = nil
+            }
+        }
+    }
+
     // 提取 @ 用户名
-    private func extractMentionedUsers(from content: String) -> [String] {
-        let regex = try! NSRegularExpression(pattern: "@([A-Za-z0-9_]+)")
-        let matches = regex.matches(
+    private func extractMentionedUsers(from content: String) -> Set<String> {
+        let matches = replyMentionRegex.matches(
             in: content,
             range: NSRange(content.startIndex..., in: content)
         )
-        return matches.compactMap {
+        return Set(matches.compactMap {
             Range($0.range(at: 1), in: content).map { String(content[$0]) }
-        }
+        })
     }
 
     func loadReply(topicId: Int) async {
@@ -712,6 +854,11 @@ struct DetailView: View {
         do {
             let r = try await V2exAPI.shared.repliesAll(topicId: topicId)
             replies = r
+            if let r {
+                rebuildConversationCache(for: visibleReplies(from: r))
+            } else {
+                conversationByReplyId = [:]
+            }
         } catch {
             if (error as? URLError)?.code != .cancelled {
                 print("真正的错误: \(error)")

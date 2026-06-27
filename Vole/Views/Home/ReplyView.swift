@@ -15,65 +15,16 @@ struct ReplyRowView: View {
     let topic: Topic
     let reply: Reply
     let floor: Int
+    let showsConversationIndicator: Bool
     var onMentionsChanged: (([String]) -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
+            replyAvatar
 
-            if let avatarURL = reply.member.avatarNormal,
-                let url = URL(string: avatarURL)
-            {
-                Button {
-                    selectedUser = reply.member
-                } label: {
-                    KFImage(url)
-                        .placeholder {
-                            Color.gray
-                        }
-                        .resizable()
-                        .scaledToFill()
-                        .frame(width: 36, height: 36)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.borderless)
-            } else {
-                // 头像占位
-                Image(systemName: "person.circle.fill")
-                    .resizable()
-                    .frame(width: 36, height: 36)
-                    .foregroundColor(.blue)
-            }
+            VStack(alignment: .leading, spacing: 8) {
+                replyHeader
 
-            VStack(alignment: .leading, spacing: 4) {
-                // 用户名 + 时间 + 楼层
-                HStack(alignment: .firstTextBaseline) {
-                    let username = reply.member.username
-                    Text(username)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .bold()
-                    if topic.member?.username == username {
-                        Image(systemName: "person.fill")
-                            .foregroundColor(.accentColor)
-                            .imageScale(.small)
-                    }
-                    if let pro = reply.member.pro, pro > 0 {
-                        Image(systemName: "rosette")
-                            .foregroundColor(.yellow)
-                            .imageScale(.small)
-                    }
-                    TimelineView(.everyMinute) { _ in
-                        Text(DateConverter.relativeTimeString(reply.created))
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    Text("\(floor+1)楼")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                // 评论内容
                 VoleMarkdownView(
                     content: reply.content,
                     onMentionsChanged: { mentions in
@@ -92,6 +43,7 @@ struct ReplyRowView: View {
                 )
             }
         }
+        .padding(.vertical, 12)
         .sheet(item: $selectedUser) { member in
             NavigationStack {
                 memberDetailView(for: member)
@@ -143,6 +95,112 @@ struct ReplyRowView: View {
             }
             Button("取消", role: .cancel) {}
         }
+    }
+
+    @ViewBuilder
+    private var replyAvatar: some View {
+        if let avatarURL = reply.member.avatarNormal,
+            let url = URL(string: avatarURL)
+        {
+            Button {
+                selectedUser = reply.member
+            } label: {
+                KFImage(url)
+                    .placeholder {
+                        Circle()
+                            .fill(Color.gray.opacity(0.18))
+                    }
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 38, height: 38)
+                    .clipShape(Circle())
+            }
+            .buttonStyle(.borderless)
+        } else {
+            Circle()
+                .fill(Color.accentColor.opacity(0.14))
+                .frame(width: 38, height: 38)
+                .overlay {
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                }
+        }
+    }
+
+    private var replyHeader: some View {
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(reply.member.username)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    if topic.member?.username == reply.member.username {
+                        ReplyIdentityBadge(
+                            systemImage: "person.fill",
+                            tint: Color.accentColor,
+                            accessibilityLabel: "楼主"
+                        )
+                    }
+
+                    if let pro = reply.member.pro, pro > 0 {
+                        ReplyIdentityBadge(
+                            systemImage: "rosette",
+                            tint: .yellow,
+                            accessibilityLabel: "会员"
+                        )
+                    }
+                }
+
+                TimelineView(.everyMinute) { _ in
+                    Text(DateConverter.relativeTimeString(reply.created))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            HStack(spacing: 6) {
+                Text("\(floor + 1)楼")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(Color.secondary.opacity(0.10))
+                    )
+
+                if showsConversationIndicator {
+                    Image(systemName: "bubble.left.and.bubble.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 24, height: 24)
+                        .accessibilityLabel("查看对话")
+                }
+            }
+        }
+    }
+}
+
+private struct ReplyIdentityBadge: View {
+    let systemImage: String
+    let tint: Color
+    let accessibilityLabel: String
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.caption2.weight(.bold))
+            .foregroundStyle(tint)
+            .frame(width: 18, height: 18)
+            .background(
+                Circle()
+                    .fill(tint.opacity(0.14))
+            )
+            .accessibilityLabel(accessibilityLabel)
     }
 }
 
