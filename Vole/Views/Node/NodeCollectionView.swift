@@ -20,45 +20,52 @@ struct NodeCollectionView: View {
 
     var body: some View {
         List {
-            // Topics 列表 Section
-            Section {
-                if isLoading {
-                    HStack {
-                        Spacer()
-                        ProgressView("加载中…")
-                        Spacer()
-                    }
-                    .listRowSeparator(.hidden)
-                } else {
-                    ForEach(topics) { topic in
-                        TopicRow(topic: topic) {
-                            if userManager.token != nil {
-                                path.append(Route.topicId(topic.id))
-                            }else {
-                                path.append(Route.topic(topic))
-                            }
-                        }
-                    }
-                }
-            } header: {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(collection.nodeNames, id: \.self) { nodeName in
-                            let node = nodeManager.getNode(nodeName)
+            nodeSelectorHeader
+                .listRowInsets(
+                    EdgeInsets(
+                        top: 10,
+                        leading: 16,
+                        bottom: 8,
+                        trailing: 0
+                    )
+                )
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
 
-                            Button {
-                                openNode(node, named: nodeName)
-                            } label: {
-                                nodeCard(node, named: nodeName)
-                            }
-                            .buttonStyle(.plain)
+            if isLoading {
+                HStack {
+                    Spacer()
+                    ProgressView("加载中…")
+                    Spacer()
+                }
+                .padding(.vertical, 24)
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(topics) { topic in
+                    TopicRow(topic: topic) {
+                        if userManager.token != nil {
+                            path.append(Route.topicId(topic.id))
+                        } else {
+                            path.append(Route.topic(topic))
                         }
                     }
-                    .padding(.vertical, 4)
+                    .listRowInsets(
+                        EdgeInsets(
+                            top: 6,
+                            leading: 12,
+                            bottom: 6,
+                            trailing: 12
+                        )
+                    )
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                 }
-                .textCase(nil)
             }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemGroupedBackground))
         .navigationTitle(collection.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -68,6 +75,25 @@ struct NodeCollectionView: View {
         }
         .refreshable {
             await loadTopics()
+        }
+    }
+
+    private var nodeSelectorHeader: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(collection.nodeNames, id: \.self) { nodeName in
+                    let node = nodeManager.getNode(nodeName)
+
+                    Button {
+                        openNode(node, named: nodeName)
+                    } label: {
+                        nodeCard(node, named: nodeName)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.vertical, 4)
+            .padding(.trailing, 16)
         }
     }
 

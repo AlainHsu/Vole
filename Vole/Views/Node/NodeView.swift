@@ -23,12 +23,7 @@ struct NodeView: View {
 
             Group {
                 if nodeManager.groups.isEmpty {
-                    VStack {
-                        ProgressView("加载中…")
-                            .progressViewStyle(.circular)
-                            .padding()
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    NodeLoadingStateView()
                 } else {
                     ScrollView(.vertical) {
                         VStack(alignment: .leading, spacing: 24) {
@@ -200,6 +195,36 @@ struct NodeView: View {
         }
     }
 
+}
+
+private struct NodeLoadingStateView: View {
+    var body: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.10))
+                    .frame(width: 52, height: 52)
+
+                ProgressView()
+                    .controlSize(.regular)
+            }
+
+            VStack(spacing: 5) {
+                Text("正在加载节点")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+
+                Text("正在整理节点分类和常用入口。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
+    }
 }
 
 struct NodeGroup: Codable, Identifiable, Hashable {

@@ -17,6 +17,7 @@ struct NodeDetailView: View {
     @State private var currentPage = 1
     @State private var isNodeLoading = false
     @State private var isTopicLoading = false
+    @State private var nodeLoadFailed = false
 
     @ObservedObject private var userManager = UserManager.shared
     @StateObject private var nodeManager = NodeManager.shared
@@ -27,85 +28,106 @@ struct NodeDetailView: View {
         ZStack {
             if let node = node {
                 List {
-                    // 节点信息 Section
-                    Section {
-                        VStack(spacing: 16) {
-                            // 头像
-                            nodeAvatar(node)
+                    nodeProfileHeader(node)
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 14,
+                                leading: 16,
+                                bottom: 10,
+                                trailing: 16
+                            )
+                        )
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
 
-                            // 名称 + 英文名
-                            VStack(spacing: 4) {
-                                Text(node.title ?? "")
-                                    .font(.title2)
-                                    .fontWeight(.semibold)
+                    topicsSectionHeader(for: node)
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 12,
+                                leading: 16,
+                                bottom: 2,
+                                trailing: 16
+                            )
+                        )
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
 
-                                if !node.name.isEmpty {
-                                    Text(node.name)
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
+                    if !topics.isEmpty {
+                        ForEach(topics) { topic in
+                            TopicRow(topic: topic) {
+                                if userManager.token != nil {
+                                    path.append(Route.topicId(topic.id))
+                                } else {
+                                    path.append(Route.topic(topic))
                                 }
                             }
-
-                            // 发帖 + 星标
-                            HStack(spacing: 24) {
-                                if let topics = node.topics, topics > 0 {
-                                    HStack(spacing: 8) {
-                                        Image(
-                                            systemName: "append.page.fill"
-                                        )
-                                        .foregroundColor(.blue)
-                                        Text("\(topics)")
-                                    }
-                                }
-                                if let stars = node.stars, stars > 0 {
-                                    HStack(spacing: 8) {
-                                        Image(
-                                            systemName: "star.fill"
-                                        )
-                                        .foregroundColor(.yellow)
-                                        Text("\(stars)")
-                                    }
+                            .onAppear {
+                                if topic == topics.last {
+                                    Task { await loadNextPageIfNeeded() }
                                 }
                             }
-
-                            // header 简介
-                            let text = parseHTML(node.header)
-                            if !text.isEmpty {
-                                Text(text)
-                                    .font(.subheadline)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            // aliases 标签组
-                            if let aliases = node.aliases, !aliases.isEmpty {
-                                AliasesView(aliases: aliases)
-                                    .padding(.top, 6)
-                            }
+                            .listRowInsets(
+                                EdgeInsets(
+                                    top: 6,
+                                    leading: 12,
+                                    bottom: 6,
+                                    trailing: 12
+                                )
+                            )
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(Color.clear)
                         }
-                        .frame(maxWidth: .infinity)
+                    } else if isTopicLoading {
+                        topicsStateRow(
+                            systemImage: "doc.text",
+                            title: "正在加载话题",
+                            message: "正在获取这个节点下的最新内容。",
+                            isLoading: true
+                        )
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: 16,
+                                bottom: 0,
+                                trailing: 16
+                            )
+                        )
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                    } else {
+                        topicsStateRow(
+                            systemImage: "doc.text.magnifyingglass",
+                            title: "暂无话题",
+                            message: "这个节点暂时还没有可展示的内容",
+                            isLoading: false
+                        )
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: 16,
+                                bottom: 0,
+                                trailing: 16
+                            )
+                        )
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
                     }
 
-                    Section(header: Text("话题"), footer: footerView) {
-                        if !topics.isEmpty {
-                            ForEach(topics) { topic in
-                                TopicRow(topic: topic) {
-                                    if userManager.token != nil {
-                                        path.append(Route.topicId(topic.id))
-                                    } else {
-                                        path.append(Route.topic(topic))
-                                    }
-                                }
-                                .onAppear {
-                                    if topic == topics.last {
-                                        Task { await loadNextPageIfNeeded() }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                    footerView
+                        .listRowInsets(
+                            EdgeInsets(
+                                top: 0,
+                                leading: 16,
+                                bottom: 8,
+                                trailing: 16
+                            )
+                        )
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(Color(.systemGroupedBackground))
                 .contentMargins(.top, 0, for: .scrollContent)
                 .task(id: node.name) {
                     await loadTopicsIfNeeded(for: node.name)
@@ -114,19 +136,35 @@ struct NodeDetailView: View {
                     await reloadTopics(for: node.name)
                 }
             } else if let nodeName {
-                // 还没有加载到 topic
-                ProgressView("加载中...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if nodeLoadFailed {
+                    NodeDetailStateView(
+                        systemImage: "square.grid.2x2",
+                        title: "节点加载失败",
+                        message: "暂时无法获取 \(nodeName) 的节点信息。",
+                        isLoading: false
+                    ) {
+                        Task { await loadNode(name: nodeName) }
+                    }
+                } else {
+                    NodeDetailStateView(
+                        systemImage: "square.grid.2x2",
+                        title: "正在加载节点",
+                        message: "正在获取 \(nodeName) 的节点信息。",
+                        isLoading: true,
+                        action: nil
+                    )
                     .task {
                         await loadNode(name: nodeName)
                     }
-            } else {
-                VStack {
-                    Text("\(nodeName ?? "")节点获取失败")
-                        .font(.body)
-                        .foregroundColor(.secondary)
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
+            } else {
+                NodeDetailStateView(
+                    systemImage: "exclamationmark.triangle",
+                    title: "节点获取失败",
+                    message: "没有找到可展示的节点信息。",
+                    isLoading: false,
+                    action: nil
+                )
             }
         }
         .toolbar {
@@ -167,6 +205,218 @@ struct NodeDetailView: View {
         }
     }
 
+    private func nodeProfileHeader(_ node: Node) -> some View {
+        let description = parseHTML(node.header)
+
+        return VStack(spacing: 16) {
+            nodeIdentityHeader(node)
+
+            if !description.isEmpty {
+                Text(description)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineSpacing(3)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            nodeInfoStrip(node)
+
+            if let aliases = node.aliases, !aliases.isEmpty {
+                nodeAliasSection(aliases)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func nodeIdentityHeader(_ node: Node) -> some View {
+        VStack(spacing: 10) {
+            nodeAvatar(node)
+
+            VStack(spacing: 5) {
+                Text(node.title ?? node.name)
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if !node.name.isEmpty {
+                    Text(node.name)
+                        .font(.subheadline)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func nodeInfoStrip(_ node: Node) -> some View {
+        let metrics = nodeInfoMetrics(node)
+
+        if !metrics.isEmpty {
+            HStack(spacing: 0) {
+                ForEach(metrics.indices, id: \.self) { index in
+                    nodeInfoItem(metrics[index])
+
+                    if index < metrics.count - 1 {
+                        Divider()
+                            .frame(height: 30)
+                            .padding(.horizontal, 2)
+                    }
+                }
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 4)
+        }
+    }
+
+    private func nodeInfoItem(_ metric: NodeProfileMetric) -> some View {
+        VStack(spacing: 5) {
+            HStack(spacing: 4) {
+                Image(systemName: metric.systemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(metric.tint)
+
+                Text(metric.value)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+
+            Text(metric.label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func nodeInfoMetrics(_ node: Node) -> [NodeProfileMetric] {
+        var metrics: [NodeProfileMetric] = []
+
+        if let topics = node.topics {
+            metrics.append(
+                NodeProfileMetric(
+                    value: "\(topics)",
+                    label: "话题",
+                    systemImage: "doc.text.fill",
+                    tint: .blue
+                )
+            )
+        }
+
+        if let stars = node.stars {
+            metrics.append(
+                NodeProfileMetric(
+                    value: "\(stars)",
+                    label: "收藏",
+                    systemImage: "star.fill",
+                    tint: .yellow
+                )
+            )
+        }
+
+        if let parentNodeName = node.parentNodeName, !parentNodeName.isEmpty {
+            let parentTitle =
+                nodeManager.getNode(parentNodeName)?.title ?? parentNodeName
+            metrics.append(
+                NodeProfileMetric(
+                    value: parentTitle,
+                    label: "父节点",
+                    systemImage: "folder.fill",
+                    tint: .green
+                )
+            )
+        }
+
+        return metrics
+    }
+
+    private func nodeAliasSection(_ aliases: [String]) -> some View {
+        VStack(spacing: 8) {
+            Label("别名", systemImage: "tag.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            AliasesView(aliases: aliases)
+        }
+    }
+
+    private struct NodeProfileMetric {
+        let value: String
+        let label: String
+        let systemImage: String
+        let tint: Color
+    }
+
+    private func topicsSectionHeader(for node: Node) -> some View {
+        let count = node.topics ?? topics.count
+
+        return HStack(spacing: 8) {
+            Image(systemName: "doc.text.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+
+            Text("话题")
+                .font(.headline)
+                .foregroundStyle(.primary)
+
+            if count > 0 {
+                Text("\(count)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(Color.accentColor)
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(Color.accentColor.opacity(0.12))
+                    )
+            }
+        }
+        .textCase(nil)
+        .padding(.top, 4)
+    }
+
+    private func topicsStateRow(
+        systemImage: String,
+        title: String,
+        message: String,
+        isLoading: Bool
+    ) -> some View {
+        VStack(spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(Color.secondary.opacity(0.08))
+                    .frame(width: 48, height: 48)
+
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.regular)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 22, weight: .medium))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            VStack(spacing: 4) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 24)
+    }
+
     private func nodeAvatar(_ node: Node) -> some View {
         Group {
             if let avatarURL = node.getHighestQualityAvatar(),
@@ -183,56 +433,77 @@ struct NodeDetailView: View {
                 nodeAvatarPlaceholder(node)
             }
         }
-        .frame(width: 104, height: 104)
+        .frame(width: 66, height: 66)
         .background(Color.accentColor.opacity(0.08))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(.primary.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(.primary.opacity(0.07), lineWidth: 1)
         }
-        .shadow(color: .black.opacity(0.1), radius: 10, y: 5)
+        .shadow(color: .black.opacity(0.04), radius: 6, y: 2)
     }
 
     private func nodeAvatarPlaceholder(_ node: Node) -> some View {
         ZStack {
             Color.accentColor.opacity(0.08)
             Text(String((node.title ?? node.name).prefix(1)))
-                .font(.largeTitle.weight(.semibold))
+                .font(.title2.weight(.semibold))
                 .foregroundStyle(Color.accentColor)
         }
     }
 
     @ViewBuilder
     private var footerView: some View {
-        // 底部加载更多动画
-        if isTopicLoading {
-            VStack {
-                ProgressView("加载中…")
+        if isTopicLoading && !topics.isEmpty {
+            HStack(spacing: 8) {
+                ProgressView()
+                    .controlSize(.small)
+
+                Text("加载更多话题")
             }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .center)
-            .listRowSeparator(.hidden)
-        } else if userManager.token == nil {
-            VStack {
+            .textCase(nil)
+        } else if userManager.token == nil && !topics.isEmpty {
+            HStack(spacing: 6) {
+                Image(systemName: "lock")
+                    .imageScale(.small)
+
                 Text("未登录仅展示前20条内容")
             }
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .center)
+            .textCase(nil)
         }
     }
 
     func loadNode(name: String) async {
         guard !isNodeLoading else { return }
         isNodeLoading = true
+        nodeLoadFailed = false
         defer { isNodeLoading = false }
         do {
             let response = try await V2exAPI().getNode(nodeName: name)
             if let r = response, r.success, let n = r.result {
                 await MainActor.run {
                     self.node = n
+                    self.nodeLoadFailed = false
+                }
+            } else {
+                await MainActor.run {
+                    self.nodeLoadFailed = true
                 }
             }
         } catch {
             if error is CancellationError { return }
             print("出错了: \(error)")
+            await MainActor.run {
+                self.nodeLoadFailed = true
+            }
         }
     }
 
@@ -325,23 +596,91 @@ struct NodeDetailView: View {
     }
 }
 
-// liases 标签视图
+private struct NodeDetailStateView: View {
+    let systemImage: String
+    let title: String
+    let message: String
+    let isLoading: Bool
+    let action: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.10))
+                    .frame(width: 64, height: 64)
+
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.regular)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 26, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+
+            VStack(spacing: 6) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let action {
+                Button(action: action) {
+                    Text("重试")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .padding(.top, 4)
+            }
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
+    }
+}
+
+// aliases 标签视图
 struct AliasesView: View {
     let aliases: [String]
 
     var body: some View {
-        HStack(spacing: 6) {
-            ForEach(aliases, id: \.self) { alias in
-                Text(alias)
-                    .font(.caption)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(Color.secondary.opacity(0.15))
-                    .clipShape(Capsule())
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+                ForEach(aliases, id: \.self) { alias in
+                    aliasChip(alias)
+                }
+            }
+            .frame(maxWidth: .infinity)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(aliases, id: \.self) { alias in
+                        aliasChip(alias)
+                    }
+                }
+                .padding(.trailing, 16)
             }
         }
         .frame(maxWidth: .infinity)
-        .multilineTextAlignment(.center)
+    }
+
+    private func aliasChip(_ alias: String) -> some View {
+        Text(alias)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(Color.secondary.opacity(0.10))
+            .clipShape(Capsule())
     }
 }
 

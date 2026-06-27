@@ -87,6 +87,15 @@ struct TopicRow: View {
                 .scaledToFill()
                 .frame(width: 34, height: 34)
                 .clipShape(Circle())
+        } else if topic.member == nil {
+            Circle()
+                .fill(Color.accentColor.opacity(0.12))
+                .frame(width: 34, height: 34)
+                .overlay {
+                    Image(systemName: "doc.text.fill")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Color.accentColor)
+                }
         } else {
             Circle()
                 .fill(Color.accentColor.opacity(0.14))
@@ -121,18 +130,28 @@ struct TopicRow: View {
         }
     }
 
+    @ViewBuilder
     private var authorAndTime: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 6) {
-            Text(topic.member?.username ?? "匿名用户")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
+        if let username = topic.member?.username, !username.isEmpty {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(username)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
 
-            if topic.created != nil {
-                Text("·")
+                if topic.created != nil {
+                    Text("·")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+
+                    topicCreatedTime
+                }
+            }
+        } else if topic.created != nil {
+            HStack(spacing: 4) {
+                Image(systemName: "clock")
                     .font(.caption)
                     .foregroundStyle(.tertiary)
-
                 topicCreatedTime
             }
         }
