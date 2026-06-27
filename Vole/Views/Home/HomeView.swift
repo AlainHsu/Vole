@@ -226,29 +226,24 @@ private struct HomeFeedPage: View {
             if let topics, !topics.isEmpty {
                 topicList(topics)
             } else if isLoading {
-                ZStack {
-                    ProgressView("加载中…")
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HomeFeedStateView(
+                    systemImage: "arrow.triangle.2.circlepath",
+                    title: "正在加载主题",
+                    message: "稍等片刻，内容马上回来。",
+                    isLoading: true,
+                    retryAction: nil
+                )
             } else {
-                VStack {
-                    Button {
-                        Task {
-                            await onLoad()
-                        }
-                    } label: {
-                        Text("点击重试")
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 16)
-                            .background(Color.gray.opacity(0.15))
-                            .cornerRadius(8)
+                HomeFeedStateView(
+                    systemImage: "doc.text.magnifyingglass",
+                    title: "暂时没有内容",
+                    message: "当前列表没有加载到主题，可以稍后再试。",
+                    isLoading: false
+                ) {
+                    Task {
+                        await onLoad()
                     }
                 }
-                .frame(
-                    maxWidth: .infinity,
-                    maxHeight: .infinity,
-                    alignment: .center
-                )
             }
         }
     }
@@ -265,11 +260,78 @@ private struct HomeFeedPage: View {
                 TopicRow(topic: topic) {
                     onSelectTopic(topic)
                 }
+                .listRowInsets(
+                    EdgeInsets(
+                        top: 6,
+                        leading: 12,
+                        bottom: 6,
+                        trailing: 12
+                    )
+                )
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
             }
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemGroupedBackground))
         .refreshable {
             await onLoad()
         }
+    }
+}
+
+private struct HomeFeedStateView: View {
+    let systemImage: String
+    let title: String
+    let message: String
+    let isLoading: Bool
+    let retryAction: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .fill(Color.accentColor.opacity(0.10))
+                    .frame(width: 52, height: 52)
+
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.regular)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(Color.accentColor)
+                }
+            }
+
+            VStack(spacing: 5) {
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if let retryAction {
+                Button {
+                    retryAction()
+                } label: {
+                    Label("重新加载", systemImage: "arrow.clockwise")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .padding(.top, 2)
+            }
+        }
+        .padding(.horizontal, 32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
     }
 }
 
