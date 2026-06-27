@@ -416,9 +416,11 @@ struct DetailView: View {
 
     @ViewBuilder
     private func topicEngagementMetrics(for topic: Topic) -> some View {
-        if topic.stars != nil || topic.replies != nil {
+        if (topic.stars ?? 0) > 0 || (topic.thanks ?? 0) > 0
+            || (topic.replies ?? 0) > 0
+        {
             HStack(spacing: 14) {
-                if let stars = topic.stars {
+                if let stars = topic.stars, stars > 0 {
                     topicMetric(
                         value: stars,
                         label: "收藏",
@@ -427,7 +429,16 @@ struct DetailView: View {
                     )
                 }
 
-                if let replies = topic.replies {
+                if let thanks = topic.thanks, thanks > 0 {
+                    topicMetric(
+                        value: thanks,
+                        label: "感谢",
+                        systemImage: "heart.fill",
+                        tint: .red
+                    )
+                }
+
+                if let replies = topic.replies, replies > 0 {
                     topicMetric(
                         value: replies,
                         label: "回复",
