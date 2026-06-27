@@ -47,98 +47,15 @@ struct DetailView: View {
 
                 List {
                     // 帖子详情部分
-                    Section(
-                        header:
-                            // 头像 + 昵称
-                            HStack {
-                                Button {
-                                    selectedUser = topic.member
-                                    showUserInfo = true
-                                } label: {
-                                    HStack {
-                                        if let avatarURL = topic.member?
-                                            .avatarNormal
-                                            ?? topic.member?.avatar,
-                                            let url = URL(string: avatarURL)
-                                        {
-                                            KFImage(url)
-                                                .placeholder {
-                                                    Color.gray
-                                                }
-                                                .resizable()
-                                                .scaledToFill()
-                                                .frame(
-                                                    width: 36,
-                                                    height: 36
-                                                )
-                                                .clipShape(Circle())
-                                        } else {
-                                            Circle()
-                                                .fill(Color.gray)
-                                                .frame(
-                                                    width: 36,
-                                                    height: 36
-                                                )
-                                        }
+                    Section {
+                        VStack(alignment: .leading, spacing: 14) {
+                            topicHeader(for: topic)
 
-                                        Text(topic.member?.username ?? "")
-                                            .font(.subheadline)
-                                            .foregroundColor(.secondary)
-                                            .bold()
-                                        if let created = topic.created {
-                                            TimelineView(.everyMinute) {
-                                                _ in
-                                                Text(
-                                                    DateConverter
-                                                        .relativeTimeString(
-                                                            created
-                                                        )
-                                                )
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                            }
-                                        }
-                                    }
-                                }
-                                .buttonStyle(.borderless)
-                                Spacer()
-                                Button {
-                                    if let node = topic.node {
-                                        if let n = nodeManager.getNode(
-                                            node.id
-                                        ) {
-                                            path.append(Route.node(n))
-                                        } else {
-                                            path.append(Route.node(node))
-                                        }
-                                    }
-                                } label: {
-                                    Text(topic.node?.title ?? "")
-                                        .font(.callout)
-                                        .lineLimit(1)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(
-                                            RoundedRectangle(
-                                                cornerRadius: 8,
-                                                style: .continuous
-                                            )
-                                            .fill(
-                                                Color.accentColor.opacity(
-                                                    0.15
-                                                )
-                                            )
-                                        )
-                                        .foregroundColor(.accentColor)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                            .textCase(nil)
-                    ) {
-                        VStack(alignment: .leading, spacing: 16) {
                             if let title = topic.title {
                                 topicTitleButton(title, urlString: topic.url)
                             }
+
+                            topicEngagementMetrics(for: topic)
 
                             if let content = topic.content, !content.isEmpty {
                                 VStack(alignment: .leading, spacing: 12) {
@@ -172,10 +89,10 @@ struct DetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .listRowInsets(
                             EdgeInsets(
-                                top: 12,
-                                leading: 6,
-                                bottom: 12,
-                                trailing: 6
+                                top: 14,
+                                leading: 16,
+                                bottom: 14,
+                                trailing: 16
                             )
                         )
                     }
@@ -445,6 +362,161 @@ struct DetailView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    private func topicHeader(for topic: Topic) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 12) {
+                topicAuthorView(for: topic)
+
+                Spacer(minLength: 12)
+
+                if let node = topic.node {
+                    topicNodeButton(node)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                topicAuthorView(for: topic)
+
+                if let node = topic.node {
+                    topicNodeButton(node)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func topicAuthorView(for topic: Topic) -> some View {
+        if let member = topic.member {
+            Button {
+                selectedUser = member
+                showUserInfo = true
+            } label: {
+                topicAuthorContent(member: member, created: topic.created)
+            }
+            .buttonStyle(.plain)
+        } else {
+            topicAuthorContent(member: nil, created: topic.created)
+        }
+    }
+
+    private func topicAuthorContent(member: Member?, created: Int?) -> some View {
+        HStack(spacing: 10) {
+            topicAuthorAvatar(for: member)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(member?.username ?? "匿名用户")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+
+                if let created {
+                    TimelineView(.everyMinute) { _ in
+                        Text(DateConverter.relativeTimeString(created))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder
+    private func topicAuthorAvatar(for member: Member?) -> some View {
+        if let avatarURL = member?.avatarNormal ?? member?.avatar,
+            let url = URL(string: avatarURL)
+        {
+            KFImage(url)
+                .placeholder {
+                    Circle()
+                        .fill(Color.gray.opacity(0.18))
+                }
+                .resizable()
+                .scaledToFill()
+                .frame(width: 34, height: 34)
+                .clipShape(Circle())
+        } else {
+            Circle()
+                .fill(Color.gray.opacity(0.18))
+                .frame(width: 34, height: 34)
+                .overlay {
+                    Image(systemName: "person.fill")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+        }
+    }
+
+    private func topicNodeButton(_ node: Node) -> some View {
+        Button {
+            if let cachedNode = nodeManager.getNode(node.id) {
+                path.append(Route.node(cachedNode))
+            } else {
+                path.append(Route.node(node))
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "square.stack.3d.up")
+                    .imageScale(.small)
+
+                Text(node.title ?? node.name)
+                    .lineLimit(1)
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(Color.accentColor)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(
+                Capsule()
+                    .fill(Color.accentColor.opacity(0.12))
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func topicEngagementMetrics(for topic: Topic) -> some View {
+        if topic.stars != nil || topic.replies != nil {
+            HStack(spacing: 14) {
+                if let stars = topic.stars {
+                    topicMetric(
+                        value: stars,
+                        label: "收藏",
+                        systemImage: "star.fill",
+                        tint: .yellow
+                    )
+                }
+
+                if let replies = topic.replies {
+                    topicMetric(
+                        value: replies,
+                        label: "回复",
+                        systemImage: "ellipsis.bubble.fill",
+                        tint: .blue
+                    )
+                }
+            }
+        }
+    }
+
+    private func topicMetric(
+        value: Int,
+        label: String,
+        systemImage: String,
+        tint: Color
+    ) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+
+            Text("\(value)")
+                .fontWeight(.semibold)
+
+            Text(label)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+    }
+
     private func topicTitleButton(_ title: String, urlString: String?) -> some View {
         Button {
             presentSafari(for: urlString)
@@ -452,7 +524,9 @@ struct DetailView: View {
             Text(title)
                 .font(.system(size: 21, weight: .bold))
                 .foregroundColor(.primary)
+                .lineLimit(nil)
                 .multilineTextAlignment(.leading)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .layoutPriority(1)
                 .contentShape(Rectangle())
