@@ -5,13 +5,14 @@
 //  Created by 杨权 on 11/18/25.
 //
 
-import Kingfisher
 import SwiftSoup
 import SwiftUI
 
 struct NotifyRowView: View {
     let item: Notification
     let onTap: (Int) -> Void
+
+    private static let rowIconName = "bell.fill"
 
     @ObservedObject private var notifyManager = NotifyManager.shared
 
@@ -48,35 +49,28 @@ struct NotifyRowView: View {
 
     private func notificationCard(_ parsed: ParsedNotification) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            unreadIndicator
-                .padding(.top, 8)
-
-            avatarView(
-                for: item.member,
-                fallbackColor: parsed.color,
-                fallbackSymbol: parsed.icon
-            )
+            notificationIcon(parsed)
 
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 10) {
                     VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 8) {
-                            Text(parsed.username)
-                                .font(.headline)
-                                .foregroundStyle(.primary)
-
-                            kindBadge(parsed)
-                        }
-
-                        Text(parsed.action)
-                            .font(.subheadline)
-                            .foregroundStyle(.primary)
-
                         if let title = parsed.topicTitle, !title.isEmpty {
                             Text(title)
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
                                 .lineLimit(2)
+                        } else {
+                            Text(parsed.username)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                        }
+
+                        HStack(spacing: 8) {
+                            if parsed.topicTitle?.isEmpty == false {
+                                actorLabel(parsed.username)
+                            }
+
+                            kindBadge(parsed)
                         }
                     }
 
@@ -119,70 +113,59 @@ struct NotifyRowView: View {
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    private var unreadIndicator: some View {
-        ZStack {
-            if !isRead {
-                Circle()
-                    .fill(Color.accentColor)
-                    .frame(width: 8, height: 8)
-            }
-        }
-        .frame(width: 8, height: 20)
-    }
-
     private func cardBackgroundColor(for parsed: ParsedNotification) -> some ShapeStyle {
         if isRead {
             return AnyShapeStyle(Color(.secondarySystemBackground))
         }
-        return AnyShapeStyle(parsed.color.opacity(0.08))
+        return AnyShapeStyle(parsed.kind.color.opacity(0.08))
     }
 
     private func cardBorderColor(for parsed: ParsedNotification) -> Color {
         if isRead {
             return Color.primary.opacity(0.05)
         }
-        return parsed.color.opacity(0.18)
+        return parsed.kind.color.opacity(0.18)
     }
 
     private func kindBadge(_ parsed: ParsedNotification) -> some View {
-        Text(parsed.badgeText)
-            .font(.caption.weight(.semibold))
-        .foregroundStyle(parsed.color)
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(
-            Capsule(style: .continuous)
-                .fill(parsed.color.opacity(0.12))
-        )
+        HStack(spacing: 4) {
+            Image(systemName: parsed.kind.badgeIcon)
+                .font(.caption2.weight(.bold))
+                .imageScale(.small)
+
+            Text(parsed.kind.badgeText)
+                .font(.caption.weight(.semibold))
+        }
+            .foregroundStyle(parsed.kind.color)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(parsed.kind.color.opacity(0.12))
+            )
     }
 
-    @ViewBuilder
-    private func avatarView(
-        for member: Member?,
-        fallbackColor: Color,
-        fallbackSymbol: String
-    ) -> some View {
-        if let avatarURL = member?.getHighestQualityAvatar(),
-           let url = URL(string: avatarURL) {
-            KFImage(url)
-                .placeholder {
-                    Circle()
-                        .fill(fallbackColor.opacity(0.16))
-                }
-                .resizable()
-                .scaledToFill()
-                .frame(width: 40, height: 40)
-                .clipShape(Circle())
-        } else {
-            ZStack {
-                Circle()
-                    .fill(fallbackColor.opacity(0.14))
-                    .frame(width: 40, height: 40)
+    private func actorLabel(_ username: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "person.fill")
+                .font(.caption2.weight(.semibold))
+                .imageScale(.small)
 
-                Image(systemName: fallbackSymbol)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(fallbackColor)
-            }
+            Text("来自 \(username)")
+                .font(.footnote)
+        }
+            .foregroundStyle(.secondary)
+    }
+
+    private func notificationIcon(_ parsed: ParsedNotification) -> some View {
+        ZStack {
+            Circle()
+                .fill(parsed.kind.color.opacity(isRead ? 0.12 : 0.18))
+                .frame(width: 40, height: 40)
+
+            Image(systemName: Self.rowIconName)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(parsed.kind.color)
         }
     }
 
@@ -205,36 +188,10 @@ struct NotifyRowView: View {
             }
 
             let fullText = try doc.text()
-            var actionText = ""
-            var icon = "message.fill"
-            var color: Color = .accentColor
-            var badgeText = "通知"
+            let kind = NotificationKind(text: fullText)
             var parsedPayload: String? = item.payload
 
-            if fullText.contains("提到了你") {
-                actionText = "提到了你"
-                icon = "at"
-                color = .orange
-                badgeText = "提到"
-            } else if fullText.contains("回复了你") {
-                actionText = "回复了你"
-                icon = "bubble.left.and.bubble.right.fill"
-                color = .blue
-                badgeText = "回复"
-            } else if fullText.contains("收藏") {
-                actionText = "收藏了你发布的主题"
-                icon = "star.fill"
-                color = .yellow
-                badgeText = "收藏"
-            } else if fullText.contains("感谢") {
-                actionText = "感谢了你发布的主题"
-                icon = "heart.fill"
-                color = .red
-                badgeText = "感谢"
-            } else if fullText.contains("打赏") {
-                icon = "dollarsign.circle.fill"
-                color = .yellow
-                badgeText = "打赏"
+            if kind == .tip {
                 parsedPayload = nil
 
                 if let payload = item.payload,
@@ -242,21 +199,11 @@ struct NotifyRowView: View {
                    let id = Int(payload.dropFirst("topic:".count)) {
                     topicId = id
                 }
-
-                let tipLink = try doc.select("a[href^=/solana]").first()
-                if let tipText = try tipLink?.text() {
-                    actionText = "打赏了你 \(tipText)"
-                }
-            } else {
-                actionText = fullText
             }
 
             return ParsedNotification(
                 username: username,
-                action: actionText,
-                badgeText: badgeText,
-                icon: icon,
-                color: color,
+                kind: kind,
                 topicTitle: topicTitle,
                 topicId: topicId,
                 payload: parsedPayload
@@ -270,13 +217,84 @@ struct NotifyRowView: View {
 
 private struct ParsedNotification {
     let username: String
-    let action: String
-    let badgeText: String
-    let icon: String
-    let color: Color
+    let kind: NotificationKind
     let topicTitle: String?
     let topicId: Int?
     let payload: String?
+}
+
+private enum NotificationKind {
+    case mention
+    case reply
+    case favorite
+    case thanks
+    case tip
+    case notice
+
+    init(text: String) {
+        if text.contains("提到了你") {
+            self = .mention
+        } else if text.contains("回复了你") {
+            self = .reply
+        } else if text.contains("收藏") {
+            self = .favorite
+        } else if text.contains("感谢") {
+            self = .thanks
+        } else if text.contains("打赏") {
+            self = .tip
+        } else {
+            self = .notice
+        }
+    }
+
+    var badgeText: String {
+        switch self {
+        case .mention:
+            "提到"
+        case .reply:
+            "回复"
+        case .favorite:
+            "收藏"
+        case .thanks:
+            "感谢"
+        case .tip:
+            "打赏"
+        case .notice:
+            "通知"
+        }
+    }
+
+    var badgeIcon: String {
+        switch self {
+        case .mention:
+            "at"
+        case .reply:
+            "bubble.left.and.bubble.right.fill"
+        case .favorite:
+            "star.fill"
+        case .thanks:
+            "heart.fill"
+        case .tip:
+            "dollarsign.circle.fill"
+        case .notice:
+            "message.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .mention:
+            .orange
+        case .reply:
+            .blue
+        case .favorite, .tip:
+            .yellow
+        case .thanks:
+            .red
+        case .notice:
+            .accentColor
+        }
+    }
 }
 
 #Preview {
