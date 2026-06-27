@@ -46,16 +46,16 @@ class NodeManager: ObservableObject {
     /// 刷新节点
     func refreshNodes(force: Bool) async {
         if !force, let cached = loadCachedGroups(), !cached.isEmpty {
-            self.groups = cached
-            let allNodes = cached.flatMap { $0.nodes }
-            self.nodes = allNodes
-            rebuildIndex(from: allNodes)
+            applyCachedGroups(cached)
             return
         }
 
         let fetched = await loadNodes()
+        let builtGroups = await Self.buildGroupsInBackground(from: fetched)
+        saveGroupsToCache(builtGroups)
+
         self.nodes = fetched
-        self.groups = buildGroups(from: fetched)
+        self.groups = builtGroups
         rebuildIndex(from: fetched)
     }
 
@@ -67,11 +67,8 @@ class NodeManager: ObservableObject {
             return
         }
 
-        groups = cached
-        let allNodes = cached.flatMap { $0.nodes }
-        nodes = allNodes
-        rebuildIndex(from: allNodes)
-        print("⭕️ NodeManager 已从缓存构建索引 (\(allNodes.count) nodes)")
+        applyCachedGroups(cached)
+        print("⭕️ NodeManager 已从缓存构建索引 (\(nodes.count) nodes)")
     }
 
     // 模糊搜索
@@ -108,16 +105,21 @@ class NodeManager: ObservableObject {
         }
     }
 
+    private func applyCachedGroups(_ cached: [NodeGroup]) {
+        groups = cached
+        let allNodes = cached.flatMap { $0.nodes }
+        nodes = allNodes
+        rebuildIndex(from: allNodes)
+    }
+
     // 加载节点（网络 + 本地缓存）
     private func loadNodes() async -> [Node] {
-        guard !isLoading else { return [] }
+        guard !isLoading else { return nodes }
         isLoading = true
         defer { isLoading = false }
 
         do {
             let list = try await V2exAPI.shared.nodesList() ?? []
-            let groups = buildGroups(from: list)
-            saveGroupsToCache(groups)
             print("成功加载\(list.count)个节点")
             return list
         } catch {
@@ -139,8 +141,19 @@ class NodeManager: ObservableObject {
         return try? JSONDecoder().decode([NodeGroup].self, from: data)
     }
 
+    nonisolated private static func buildGroupsInBackground(
+        from nodes: [Node]
+    ) async -> [NodeGroup] {
+        await Task.detached(priority: .userInitiated) {
+            NodeGroupBuilder.buildGroups(from: nodes)
+        }.value
+    }
+
+}
+
+private enum NodeGroupBuilder {
     // 构建分组
-    func buildGroups(from nodes: [Node]) -> [NodeGroup] {
+    static func buildGroups(from nodes: [Node]) -> [NodeGroup] {
         // --- 1. 基础字典映射 ---
         var allNodesDict: [String: Node] = [:]
         for n in nodes { allNodesDict[n.name] = n }
@@ -260,5 +273,4 @@ class NodeManager: ObservableObject {
 
         return finalGroups.sorted { $0.weight > $1.weight }
     }
-
 }

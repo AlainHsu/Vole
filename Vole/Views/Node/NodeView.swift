@@ -26,11 +26,11 @@ struct NodeView: View {
                     NodeLoadingStateView()
                 } else {
                     ScrollView(.vertical) {
-                        VStack(alignment: .leading, spacing: 24) {
+                        LazyVStack(alignment: .leading, spacing: 24) {
 
                             // 分类横向滚动
                             ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 12) {
+                                LazyHStack(spacing: 12) {
                                     ForEach(
                                         collectionManager.collections,
                                         id: \.self
@@ -153,7 +153,7 @@ struct NodeView: View {
             .padding(.horizontal)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 16) {
+                LazyHStack(spacing: 16) {
                     let limitedNodes = Array(group.nodes.prefix(15))
                     let columns = stride(
                         from: 0,
@@ -168,7 +168,7 @@ struct NodeView: View {
                     }
 
                     ForEach(columns.indices, id: \.self) { i in
-                        VStack(spacing: 0) {
+                        LazyVStack(spacing: 0) {
                             ForEach(columns[i].indices, id: \.self) { j in
                                 let node = columns[i][j]
                                 Button {
@@ -227,7 +227,7 @@ private struct NodeLoadingStateView: View {
     }
 }
 
-struct NodeGroup: Codable, Identifiable, Hashable {
+struct NodeGroup: Codable, Identifiable, Hashable, Sendable {
     var id = UUID()
     let root: Node
     let nodes: [Node]
