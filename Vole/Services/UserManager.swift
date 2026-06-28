@@ -11,12 +11,20 @@ class UserManager: ObservableObject {
     static let shared = UserManager()
     private init() {
         // 启动时尝试加载
-        self.currentMember = loadMember()
-        self.token = KeychainHelper.shared.read()
+        let storedToken = KeychainHelper.shared.read()
+        self.currentMember = nil
+        self.token = storedToken
+        self.didValidateStoredToken = storedToken == nil
+        if storedToken == nil {
+            UserDefaults.standard.removeObject(forKey: memberKey)
+        } else {
+            self.currentMember = loadMember()
+        }
     }
 
     @Published var currentMember: Member?
     @Published var token: Token?
+    @Published private(set) var didValidateStoredToken: Bool
 
     private let memberKey = "currentMember"
 
@@ -41,15 +49,30 @@ class UserManager: ObservableObject {
         return true
     }
 
-    func refreshTokenDetailsIfNeeded() async {
-        guard let token, token.needsDetails, let value = token.token,
-            let response = try? await V2exAPI.shared.token(token: value),
-            response.success,
-            let details = response.result
-        else {
+    @MainActor
+    func refreshStoredTokenDetails() async {
+        guard let token, let value = token.token else {
+            didValidateStoredToken = true
             return
         }
-        _ = saveToken(token.completed(with: details))
+
+        do {
+            guard let response = try await V2exAPI.shared.token(token: value)
+            else {
+                didValidateStoredToken = true
+                return
+            }
+
+            if response.success, let details = response.result {
+                _ = saveToken(token.completed(with: details))
+            } else if response.message == "Invalid token" {
+                clear()
+            }
+        } catch {
+            print("刷新 Token 详情失败：", error)
+        }
+
+        didValidateStoredToken = true
     }
 
     func renewToken() async throws {

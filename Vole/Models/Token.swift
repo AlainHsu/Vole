@@ -31,10 +31,6 @@ extension Token {
         return Date(timeIntervalSince1970: TimeInterval(created + expiration))
     }
 
-    var needsDetails: Bool {
-        created == nil || expiration == nil
-    }
-
     var needsRenewalWarning: Bool {
         expires(withinDays: Self.warningDays)
     }

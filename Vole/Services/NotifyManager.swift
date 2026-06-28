@@ -43,6 +43,13 @@ final class NotifyManager: ObservableObject {
     private var cancellables = Set<AnyCancellable>()  // 用于存放订阅对象
     private var pendingRefreshPayload: PendingRefreshPayload?
     private var isAppActive = true
+    private var isNotificationServiceActive = false
+
+    private var canLoadNotifications: Bool {
+        UserManager.shared.didValidateStoredToken
+            && UserManager.shared.currentMember != nil
+            && UserManager.shared.token?.token?.isEmpty == false
+    }
 
     private init() {
         // 读取已读集合
@@ -61,29 +68,54 @@ final class NotifyManager: ObservableObject {
     }
 
     private func setupAuthListener() {
-        UserManager.shared.$currentMember
+        Publishers.CombineLatest3(
+            UserManager.shared.$currentMember,
+            UserManager.shared.$token,
+            UserManager.shared.$didValidateStoredToken
+        )
             .receive(on: RunLoop.main)
-            .sink { [weak self] member in
-                if member != nil {
-                    // 1. 用户登录了：启动定时器，并立即刷新一次数据
-                    print("NotifyManager: 检测到登录，启动服务")
-                    self?.startPollingIfNeeded()
-                    Task {
-                        await self?.refresh()
-                    }
-                } else {
-                    // 2. 用户登出了：停止定时器，清空旧数据
-                    print("NotifyManager: 检测到登出，清理数据")
-                    self?.stopPolling()
-                    self?.notifications = []
-                    self?.totalCount = 0
-                    self?.latestTotalCount = 0
-                    self?.currentPage = 1
-                    self?.endIndex = 0
-                    self?.clearPendingRefresh()
+            .sink { [weak self] member, token, didValidateStoredToken in
+                guard let self else { return }
+
+                let canLoadNotifications =
+                    didValidateStoredToken
+                    && member != nil
+                    && token?.token?.isEmpty == false
+
+                if canLoadNotifications {
+                    self.activateNotificationService()
+                } else if didValidateStoredToken || member == nil || token == nil {
+                    self.deactivateNotificationService()
                 }
             }
             .store(in: &cancellables)
+    }
+
+    private func activateNotificationService() {
+        guard !isNotificationServiceActive else { return }
+
+        isNotificationServiceActive = true
+        print("NotifyManager: 认证状态可用，启动服务")
+        startPollingIfNeeded()
+        Task {
+            await refresh()
+        }
+    }
+
+    private func deactivateNotificationService() {
+        guard isNotificationServiceActive || !notifications.isEmpty
+            || totalCount > 0 || latestTotalCount > 0 || hasPendingRefresh
+        else { return }
+
+        print("NotifyManager: 认证状态不可用，清理数据")
+        isNotificationServiceActive = false
+        stopPolling()
+        notifications = []
+        totalCount = 0
+        latestTotalCount = 0
+        currentPage = 1
+        endIndex = 0
+        clearPendingRefresh()
     }
 
     func updateScenePhase(_ scenePhase: ScenePhase) {
@@ -94,8 +126,10 @@ final class NotifyManager: ObservableObject {
 
         if isActive {
             startPollingIfNeeded()
-            Task {
-                await pollLatestNotifications()
+            if canLoadNotifications {
+                Task {
+                    await pollLatestNotifications()
+                }
             }
         } else {
             stopPolling()
@@ -105,7 +139,7 @@ final class NotifyManager: ObservableObject {
     private func startPollingIfNeeded() {
         guard pollingTask == nil else { return }
         guard isAppActive else { return }
-        guard UserManager.shared.currentMember != nil else { return }
+        guard canLoadNotifications else { return }
 
         pollingTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -187,6 +221,7 @@ final class NotifyManager: ObservableObject {
     /// - Parameter page: 要加载的页码。
     /// - Parameter isRefresh: 是否是刷新（加载第一页）。
     func loadNotifications(page: Int, isRefresh: Bool) async {
+        guard canLoadNotifications else { return }
         guard let t = UserManager.shared.token, !isLoading else { return }
 
         isLoading = true
@@ -233,6 +268,7 @@ final class NotifyManager: ObservableObject {
     }
 
     private func pollLatestNotifications() async {
+        guard canLoadNotifications else { return }
         guard let token = UserManager.shared.token?.token, !isLoading else { return }
 
         isLoading = true

@@ -23,6 +23,9 @@ struct VoleApp: App {
             ContentView()
                 .tint(appTheme.color)
                 .onAppear { handleStartupFlow() }
+                .task {
+                    await UserManager.shared.refreshStoredTokenDetails()
+                }
                 .sheet(isPresented: $showWelcome) {
                     WelcomePage {
                         showWelcome = false

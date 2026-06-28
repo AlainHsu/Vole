@@ -503,7 +503,7 @@ struct TokenRenewPage: View {
             alert.content(renew: renewToken)
         }
         .task {
-            await userManager.refreshTokenDetailsIfNeeded()
+            await userManager.refreshStoredTokenDetails()
         }
         .onDisappear {
             copyFeedbackTask?.cancel()
