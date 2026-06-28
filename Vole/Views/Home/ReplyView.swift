@@ -163,25 +163,31 @@ struct ReplyRowView: View {
 
             Spacer(minLength: 8)
 
-            HStack(spacing: 6) {
-                Text("\(floor + 1)楼")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(Color.secondary.opacity(0.10))
-                    )
+            replyMetaActions
+        }
+    }
 
-                if showsConversationIndicator {
-                    Image(systemName: "bubble.left.and.bubble.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: 24, height: 24)
-                        .accessibilityLabel("查看对话")
-                }
-            }
+    private var replyMetaActions: some View {
+        HStack(spacing: 6) {
+            Text("\(floor + 1)楼")
+                .font(.caption2.weight(.semibold))
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+                .frame(minWidth: 42)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.10))
+                )
+
+            Image(systemName: "bubble.left.and.bubble.right")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.tertiary)
+                .frame(width: 24, height: 24)
+                .opacity(showsConversationIndicator ? 1 : 0)
+                .accessibilityLabel("查看对话")
+                .accessibilityHidden(!showsConversationIndicator)
         }
     }
 }

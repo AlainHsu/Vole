@@ -205,10 +205,10 @@ struct TopicRow: View {
                         color: .red
                     )
                 }
-                if let replies = topic.replies {
+                if let replies = topic.replies, replies > 0 {
                     topicMetric(
                         replies,
-                        systemImage: "bubble.left.and.bubble.right"
+                        systemImage: "bubble.left"
                     )
                 }
             }
