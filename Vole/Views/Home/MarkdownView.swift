@@ -105,6 +105,18 @@ struct VoleMarkdownView: View {
             .markdownElementRenderer(.image(renderer, urlScheme: "http"))
             .markdownElementRenderer(.image(renderer, urlScheme: "https"))
             .markdownTableStyle(HorizontalScrollableMarkdownTableStyle())
+            .font(.headline.weight(.semibold), for: .h1)
+            .font(.headline.weight(.semibold), for: .h2)
+            .font(.subheadline.weight(.semibold), for: .h3)
+            .font(.subheadline.weight(.semibold), for: .h4)
+            .font(.body.weight(.semibold), for: .h5)
+            .font(.body.weight(.medium), for: .h6)
+            .padding(.top, 10, for: .h1)
+            .padding(.top, 10, for: .h2)
+            .padding(.top, 8, for: .h3)
+            .padding(.top, 6, for: .h4)
+            .padding(.top, 6, for: .h5)
+            .padding(.top, 6, for: .h6)
             .textSelection(.enabled)
     }
 
