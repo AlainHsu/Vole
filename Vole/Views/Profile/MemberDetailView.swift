@@ -308,18 +308,8 @@ struct MemberDetailView: View {
             chips.append(
                 HeaderChip(
                     id: "member-id",
-                    text: "第 \(id) 位会员",
+                    text: "第 \(id.formatted(.number)) 位会员",
                     tint: .indigo
-                )
-            )
-        }
-
-        if let location = nonEmpty(member.location) {
-            chips.append(
-                HeaderChip(
-                    id: "location",
-                    text: location,
-                    tint: .orange
                 )
             )
         }
@@ -328,7 +318,7 @@ struct MemberDetailView: View {
             chips.append(
                 HeaderChip(
                     id: "pro",
-                    text: "V2EX Pro",
+                    text: "Pro会员",
                     systemImage: "rosette",
                     tint: .yellow
                 )

@@ -39,7 +39,7 @@ struct MemberRowView: View {
                         .fontWeight(.semibold)
 
                     if let id = member.id {
-                        Text("第 \(id) 位会员")
+                        Text("第 \(id.formatted(.number)) 位会员")
                             .foregroundColor(.secondary)
                             .font(.subheadline)
                     }
