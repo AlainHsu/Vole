@@ -169,6 +169,15 @@ struct ReplyRowView: View {
 
     private var replyMetaActions: some View {
         HStack(spacing: 6) {
+            
+            if showsConversationIndicator {
+                Image(systemName: "bubble.left.and.bubble.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .frame(width: 24, height: 24)
+                    .accessibilityLabel("查看对话")
+            }
+            
             Text("\(floor + 1)楼")
                 .font(.caption2.weight(.semibold))
                 .monospacedDigit()
@@ -180,14 +189,6 @@ struct ReplyRowView: View {
                     Capsule()
                         .fill(Color.secondary.opacity(0.10))
                 )
-
-            Image(systemName: "bubble.left.and.bubble.right")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
-                .frame(width: 24, height: 24)
-                .opacity(showsConversationIndicator ? 1 : 0)
-                .accessibilityLabel("查看对话")
-                .accessibilityHidden(!showsConversationIndicator)
         }
     }
 }
