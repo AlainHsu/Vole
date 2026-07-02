@@ -10,6 +10,7 @@ import SwiftUI
 
 struct NodeView: View {
     @StateObject private var collectionManager = NodeCollectionManager.shared
+    @StateObject private var favoriteNodeManager = FavoriteNodeManager.shared
     @State private var showProfile = false
     @StateObject private var nodeManager = NodeManager.shared
     @ObservedObject private var userManager = UserManager.shared
@@ -27,7 +28,6 @@ struct NodeView: View {
                 } else {
                     ScrollView(.vertical) {
                         LazyVStack(alignment: .leading, spacing: 24) {
-
                             // 分类横向滚动
                             ScrollView(.horizontal, showsIndicators: false) {
                                 LazyHStack(spacing: 12) {
@@ -60,6 +60,8 @@ struct NodeView: View {
                                 }
                                 .padding(.horizontal)
                             }
+
+                            favoriteNodesSection
 
                             // 分组内容
                             ForEach(nodeManager.groups) { group in
@@ -103,6 +105,8 @@ struct NodeView: View {
                         path: $navManager.nodePath,
                         collection: nodeCollection
                     )
+                case .favoriteNodes:
+                    FavoriteNodeListView(path: $navManager.nodePath)
                 case .moreNode(let group):
                     List(Array(group.nodes.enumerated()), id: \.1.id) {
                         index,
@@ -195,6 +199,136 @@ struct NodeView: View {
         }
     }
 
+    @ViewBuilder
+    private var favoriteNodesSection: some View {
+        if !favoriteNodeManager.favoriteNodes.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                NavigationLink(value: Route.moreNode(favoriteNodeGroup)) {
+                    HStack {
+                        Text("收藏")
+                            .font(.title3.bold())
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundStyle(.secondary)
+
+                        Spacer()
+                    }
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(spacing: 14) {
+                        ForEach(favoriteNodeManager.favoriteNodes, id: \.name) { node in
+                            Button {
+                                openNode(node)
+                            } label: {
+                                VStack(spacing: 8) {
+                                    favoriteNodeIcon(for: node)
+
+                                    Text(node.title ?? node.name)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .frame(width: 72)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+                .safeAreaPadding(.horizontal, 16)
+            }
+        }
+    }
+
+    private func openNode(_ node: Node) {
+        navManager.nodePath.append(Route.node(node))
+    }
+
+    private var favoriteNodeGroup: NodeGroup {
+        NodeGroup(
+            root: Node.createVirtual(name: "favorites", title: "收藏节点"),
+            nodes: favoriteNodeManager.favoriteNodes,
+            weight: 0
+        )
+    }
+
+    @ViewBuilder
+    private func favoriteNodeIcon(for node: Node) -> some View {
+        Group {
+            if let avatarURL = node.getHighestQualityAvatar(),
+                let url = SiteConfiguration.makeSiteURL(from: avatarURL)
+            {
+                KFImage(url)
+                    .placeholder {
+                        favoriteNodePlaceholder(for: node)
+                    }
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                favoriteNodePlaceholder(for: node)
+            }
+        }
+        .frame(width: 58, height: 58)
+        .clipShape(Circle())
+        .overlay {
+            Circle()
+                .stroke(Color.secondary.opacity(0.12), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.04), radius: 6, x: 0, y: 2)
+    }
+
+    private func favoriteNodePlaceholder(for node: Node) -> some View {
+        ZStack {
+            Circle()
+                .fill(Color.secondary.opacity(0.12))
+
+            Text(String((node.title ?? node.name).prefix(1)))
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+}
+
+private struct FavoriteNodeListView: View {
+    @Binding var path: NavigationPath
+    @StateObject private var favoriteNodeManager = FavoriteNodeManager.shared
+
+    var body: some View {
+        List {
+            if favoriteNodeManager.favoriteNodes.isEmpty {
+                ContentUnavailableView(
+                    "暂无收藏节点",
+                    systemImage: "star",
+                    description: Text("在节点详情页点一下加号，就会出现在这里。")
+                )
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+            } else {
+                ForEach(favoriteNodeManager.favoriteNodes, id: \.name) { node in
+                    Button {
+                        path.append(Route.node(node))
+                    } label: {
+                        NodeRowView(node: node)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowInsets(
+                        EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
+                    )
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle("收藏")
+        .navigationBarTitleDisplayMode(.inline)
+    }
 }
 
 private struct NodeLoadingStateView: View {

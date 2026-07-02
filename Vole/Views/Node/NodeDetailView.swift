@@ -20,6 +20,7 @@ struct NodeDetailView: View {
     @State private var nodeLoadFailed = false
 
     @ObservedObject private var userManager = UserManager.shared
+    @StateObject private var favoriteNodeManager = FavoriteNodeManager.shared
     @StateObject private var nodeManager = NodeManager.shared
     @Environment(\.openURL) private var openURL
     @Binding var path: NavigationPath
@@ -169,17 +170,29 @@ struct NodeDetailView: View {
         }
         .toolbar {
             ToolbarItem {
-                let shareURL = node?.url ?? ""
-                ShareLink(item: shareURL) {
-                    Image(systemName: "square.and.arrow.up")
+                if let node {
+                    Button {
+                        favoriteNodeManager.toggleFavorite(node)
+                    } label: {
+                        Image(
+                            systemName: favoriteNodeManager.isFavorite(node)
+                                ? "checkmark"
+                                : "plus"
+                        )
+                    }
                 }
             }
             if #available(iOS 26, *) {
                 ToolbarSpacer(.fixed)
             }
             ToolbarItem {
-                let shareURL = node?.url ?? ""
                 Menu {
+                    if let shareURL = node?.url, !shareURL.isEmpty {
+                        ShareLink(item: shareURL) {
+                            Label("分享", systemImage: "square.and.arrow.up")
+                        }
+                    }
+
                     if let node, let parentNodeName = node.parentNodeName,
                         let n = nodeManager.getNode(parentNodeName)
                     {
@@ -187,15 +200,17 @@ struct NodeDetailView: View {
                             path.append(Route.node(n))
                         }
                     }
-                    Button("复制链接", systemImage: "link") {
-                        UIPasteboard.general.string = shareURL
-                        let generator =
-                            UINotificationFeedbackGenerator()
-                        generator.notificationOccurred(.success)
-                    }
-                    Button("在浏览器中打开", systemImage: "safari") {
-                        if let url = URL(string: shareURL) {
-                            openURL(url)
+                    if let shareURL = node?.url, !shareURL.isEmpty {
+                        Button("复制链接", systemImage: "link") {
+                            UIPasteboard.general.string = shareURL
+                            let generator =
+                                UINotificationFeedbackGenerator()
+                            generator.notificationOccurred(.success)
+                        }
+                        Button("在浏览器中打开", systemImage: "safari") {
+                            if let url = URL(string: shareURL) {
+                                openURL(url)
+                            }
                         }
                     }
                 } label: {

@@ -160,6 +160,55 @@ final class NodeCollectionManager: ObservableObject {
     }
 }
 
+@MainActor
+final class FavoriteNodeManager: ObservableObject {
+    static let shared = FavoriteNodeManager()
+
+    @Published private(set) var favoriteNodes: [Node] = []
+
+    private let storageKey = "favorite_nodes_v1"
+
+    private init() {
+        loadFavorites()
+    }
+
+    func isFavorite(_ node: Node) -> Bool {
+        favoriteNodes.contains { $0.name == node.name }
+    }
+
+    func toggleFavorite(_ node: Node) {
+        if isFavorite(node) {
+            removeFavorite(node)
+        } else {
+            addFavorite(node)
+        }
+    }
+
+    func addFavorite(_ node: Node) {
+        favoriteNodes.removeAll { $0.name == node.name }
+        favoriteNodes.insert(node, at: 0)
+        saveFavorites()
+    }
+
+    func removeFavorite(_ node: Node) {
+        favoriteNodes.removeAll { $0.name == node.name }
+        saveFavorites()
+    }
+
+    private func saveFavorites() {
+        if let data = try? JSONEncoder().encode(favoriteNodes) {
+            UserDefaults.standard.set(data, forKey: storageKey)
+        }
+    }
+
+    private func loadFavorites() {
+        guard let data = UserDefaults.standard.data(forKey: storageKey),
+            let value = try? JSONDecoder().decode([Node].self, from: data)
+        else { return }
+        favoriteNodes = value
+    }
+}
+
 private extension NodeCollectionManager {
     static let defaultCollections: [NodeCollection] = [
         NodeCollection(
