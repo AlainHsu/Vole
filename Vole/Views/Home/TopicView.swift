@@ -46,27 +46,6 @@ struct TopicRow: View {
         .onTapGesture {
             onTap()
         }
-        .contextMenu {
-            Button(action: {
-                UIPasteboard.general.string = topic.url
-                let generator = UINotificationFeedbackGenerator()
-                generator.notificationOccurred(.success)
-            }) {
-                Label("复制链接", systemImage: "link")
-            }
-            ShareLink(item: topic.url ?? "") {
-                Label("分享", systemImage: "square.and.arrow.up")
-            }
-        }
-        .swipeActions(
-            edge: .trailing,
-            allowsFullSwipe: true
-        ) {
-            ShareLink(item: topic.url ?? "") {
-                Label("分享", systemImage: "square.and.arrow.up")
-            }
-            .tint(.accentColor)
-        }
     }
 
     private var cardShape: RoundedRectangle {

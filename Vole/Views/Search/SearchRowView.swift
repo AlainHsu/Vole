@@ -100,29 +100,6 @@ struct SearchRowView: View {
         .onTapGesture {
             onTap()
         }
-        .contextMenu {
-            if let topicURL {
-                Button {
-                    UIPasteboard.general.string = topicURL
-                    let generator = UINotificationFeedbackGenerator()
-                    generator.notificationOccurred(.success)
-                } label: {
-                    Label("复制链接", systemImage: "link")
-                }
-
-                ShareLink(item: topicURL) {
-                    Label("分享", systemImage: "square.and.arrow.up")
-                }
-            }
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            if let topicURL {
-                ShareLink(item: topicURL) {
-                    Label("分享", systemImage: "square.and.arrow.up")
-                }
-                .tint(.accentColor)
-            }
-        }
     }
 
     @ViewBuilder

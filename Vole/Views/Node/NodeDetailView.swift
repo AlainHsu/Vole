@@ -201,12 +201,6 @@ struct NodeDetailView: View {
                         }
                     }
                     if let shareURL = node?.url, !shareURL.isEmpty {
-                        Button("复制链接", systemImage: "link") {
-                            UIPasteboard.general.string = shareURL
-                            let generator =
-                                UINotificationFeedbackGenerator()
-                            generator.notificationOccurred(.success)
-                        }
                         Button("在浏览器中打开", systemImage: "safari") {
                             if let url = URL(string: shareURL) {
                                 openURL(url)
