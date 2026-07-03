@@ -6,7 +6,6 @@
 //
 
 import Kingfisher
-import SwiftSoup
 import SwiftUI
 
 struct NodeRowView: View {
@@ -42,8 +41,7 @@ struct NodeRowView: View {
                     .font(.headline)
                     .lineLimit(1)
 
-                let text = parseHTML(node.header)
-                Text(text.isEmpty ? node.name : text)
+                Text(node.displaySubtitle)
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .lineLimit(1)
@@ -56,18 +54,6 @@ struct NodeRowView: View {
     /// 构建完整 URL（支持相对路径）
     private func makeFullURL(from path: String) -> URL? {
         SiteConfiguration.makeSiteURL(from: path)
-    }
-
-    private func parseHTML(_ html: String?) -> String {
-        guard let content = html else { return "" }
-        do {
-            let doc = try SwiftSoup.parse(content)
-            let fullText = try doc.text()
-            return fullText
-        } catch {
-            print("HTML 解析失败: \(error)")
-            return ""
-        }
     }
 }
 

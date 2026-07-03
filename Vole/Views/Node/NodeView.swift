@@ -108,21 +108,7 @@ struct NodeView: View {
                 case .favoriteNodes:
                     FavoriteNodeListView(path: $navManager.nodePath)
                 case .moreNode(let group):
-                    List(Array(group.nodes.enumerated()), id: \.1.id) {
-                        index,
-                        node in
-                        NodeRowView(node: node)
-                            .onTapGesture {
-                                navManager.nodePath.append(Route.node(node))
-                            }
-                            .listRowSeparator(
-                                index == 0 ? .hidden : .visible,
-                                edges: .top
-                            )
-                    }
-                    .listStyle(.plain)
-                    .navigationTitle(group.root.title ?? group.root.name)
-                    .navigationBarTitleDisplayMode(.inline)
+                    MoreNodeListView(group: group, path: $navManager.nodePath)
                 default: EmptyView()
                 }
             }
@@ -291,6 +277,86 @@ struct NodeView: View {
         }
     }
 
+}
+
+private struct MoreNodeListView: View {
+    let group: NodeGroup
+    @Binding var path: NavigationPath
+    @State private var searchText = ""
+
+    private var filteredNodes: [Node] {
+        let keyword = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !keyword.isEmpty else { return group.nodes }
+
+        return group.nodes.filter { node in
+            node.name.localizedCaseInsensitiveContains(keyword)
+                || (node.title?.localizedCaseInsensitiveContains(keyword) ?? false)
+        }
+    }
+
+    var body: some View {
+        let nodes = filteredNodes
+
+        Group {
+            if nodes.isEmpty {
+                ContentUnavailableView(
+                    emptyTitle,
+                    systemImage: "magnifyingglass",
+                    description: Text(emptyDescription)
+                )
+            } else {
+                nodeList(nodes)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemGroupedBackground))
+        .navigationTitle(group.root.title ?? group.root.name)
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "搜索节点"
+        )
+    }
+
+    private var emptyTitle: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "暂无节点"
+            : "没有找到节点"
+    }
+
+    private var emptyDescription: String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "这个分组里还没有节点。"
+            : "换个节点名称试试看。"
+    }
+
+    private func nodeList(_ nodes: [Node]) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(nodes.enumerated()), id: \.1.name) { index, node in
+                    Button {
+                        path.append(Route.node(node))
+                    } label: {
+                        NodeRowView(node: node)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 16)
+                    }
+                    .buttonStyle(.plain)
+
+                    if index < nodes.count - 1 {
+                        Divider()
+                            .padding(.leading, 82)
+                    }
+                }
+            }
+            .background(Color(.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 24)
+        }
+    }
 }
 
 private struct FavoriteNodeListView: View {

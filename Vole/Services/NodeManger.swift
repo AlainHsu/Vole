@@ -52,11 +52,12 @@ class NodeManager: ObservableObject {
 
         let fetched = await loadNodes()
         let builtGroups = await Self.buildGroupsInBackground(from: fetched)
+        let indexedNodes = builtGroups.flatMap { $0.nodes }
         saveGroupsToCache(builtGroups)
 
-        self.nodes = fetched
+        self.nodes = indexedNodes
         self.groups = builtGroups
-        rebuildIndex(from: fetched)
+        rebuildIndex(from: indexedNodes)
     }
 
     private func restoreCachedState() {
@@ -106,8 +107,16 @@ class NodeManager: ObservableObject {
     }
 
     private func applyCachedGroups(_ cached: [NodeGroup]) {
-        groups = cached
-        let allNodes = cached.flatMap { $0.nodes }
+        let preparedGroups = cached.map { group in
+            NodeGroup(
+                root: group.root.withResolvedHeaderText(),
+                nodes: group.nodes.map { $0.withResolvedHeaderText() },
+                weight: group.weight
+            )
+        }
+
+        groups = preparedGroups
+        let allNodes = preparedGroups.flatMap { $0.nodes }
         nodes = allNodes
         rebuildIndex(from: allNodes)
     }
@@ -154,12 +163,14 @@ class NodeManager: ObservableObject {
 private enum NodeGroupBuilder {
     // 构建分组
     static func buildGroups(from nodes: [Node]) -> [NodeGroup] {
+        let resolvedNodes = nodes.map { $0.withResolvedHeaderText() }
+
         // --- 1. 基础字典映射 ---
         var allNodesDict: [String: Node] = [:]
-        for n in nodes { allNodesDict[n.name] = n }
+        for n in resolvedNodes { allNodesDict[n.name] = n }
 
         // --- 2. 补全缺失的父节点 (跳过自引用) ---
-        for n in nodes {
+        for n in resolvedNodes {
             if let pName = n.parentNodeName, !pName.isEmpty,
                 pName != n.name,  // 只有父亲不是自己时，才去补全
                 allNodesDict[pName] == nil
@@ -254,7 +265,7 @@ private enum NodeGroupBuilder {
 
         // --- 8. 安全汇总所有漏掉的节点 ---
         let allProcessed = Set(finalGroups.flatMap { $0.nodes.map { $0.name } })
-        let missed = nodes.filter {
+        let missed = resolvedNodes.filter {
             !allProcessed.contains($0.name) && !otherNodes.contains($0)
         }
         otherNodes.append(contentsOf: missed)

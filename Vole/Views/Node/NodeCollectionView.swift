@@ -182,6 +182,7 @@ struct NodeCollectionView: View {
                                         topics: nil,
                                         footer: nil,
                                         header: nil,
+                                        headerText: nil,
                                         titleAlternative: nil,
                                         avatar: nil,
                                         avatarMini: nil,

@@ -185,8 +185,9 @@ final class FavoriteNodeManager: ObservableObject {
     }
 
     func addFavorite(_ node: Node) {
+        let resolvedNode = node.withResolvedHeaderText()
         favoriteNodes.removeAll { $0.name == node.name }
-        favoriteNodes.insert(node, at: 0)
+        favoriteNodes.insert(resolvedNode, at: 0)
         saveFavorites()
     }
 
@@ -205,7 +206,7 @@ final class FavoriteNodeManager: ObservableObject {
         guard let data = UserDefaults.standard.data(forKey: storageKey),
             let value = try? JSONDecoder().decode([Node].self, from: data)
         else { return }
-        favoriteNodes = value
+        favoriteNodes = value.map { $0.withResolvedHeaderText() }
     }
 }
 
