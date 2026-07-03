@@ -134,7 +134,7 @@ struct NodeDetailView: View {
                     await loadTopicsIfNeeded(for: node.name)
                 }
                 .refreshable {
-                    await reloadTopics(for: node.name)
+                    await refreshNodeAndTopics(for: node)
                 }
             } else if let nodeName {
                 if nodeLoadFailed {
@@ -193,13 +193,6 @@ struct NodeDetailView: View {
                         }
                     }
 
-                    if let node, let parentNodeName = node.parentNodeName,
-                        let n = nodeManager.getNode(parentNodeName)
-                    {
-                        Button("父节点", systemImage: "scale.3d") {
-                            path.append(Route.node(n))
-                        }
-                    }
                     if let shareURL = node?.url, !shareURL.isEmpty {
                         Button("在浏览器中打开", systemImage: "safari") {
                             if let url = URL(string: shareURL) {
@@ -231,9 +224,9 @@ struct NodeDetailView: View {
 
             nodeInfoStrip(node)
 
-            if let aliases = node.aliases, !aliases.isEmpty {
-                nodeAliasSection(aliases)
-            }
+//             if let aliases = node.aliases, !aliases.isEmpty {
+//                 nodeAliasSection(aliases)
+//             }
         }
         .frame(maxWidth: .infinity)
     }
@@ -282,7 +275,22 @@ struct NodeDetailView: View {
         }
     }
 
+    @ViewBuilder
     private func nodeInfoItem(_ metric: NodeProfileMetric) -> some View {
+        if let route = metric.route {
+            Button {
+                path.append(route)
+            } label: {
+                nodeInfoItemContent(metric)
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+        } else {
+            nodeInfoItemContent(metric)
+        }
+    }
+
+    private func nodeInfoItemContent(_ metric: NodeProfileMetric) -> some View {
         VStack(spacing: 5) {
             HStack(spacing: 4) {
                 Image(systemName: metric.systemImage)
@@ -312,7 +320,8 @@ struct NodeDetailView: View {
                     value: topics.formattedCount,
                     label: "话题",
                     systemImage: "doc.text.fill",
-                    tint: .blue
+                    tint: .blue,
+                    route: nil
                 )
             )
         }
@@ -323,7 +332,8 @@ struct NodeDetailView: View {
                     value: stars.formattedCount,
                     label: "收藏",
                     systemImage: "star.fill",
-                    tint: .yellow
+                    tint: .yellow,
+                    route: nil
                 )
             )
         }
@@ -336,7 +346,8 @@ struct NodeDetailView: View {
                     value: parentTitle,
                     label: "父节点",
                     systemImage: "folder.fill",
-                    tint: .green
+                    tint: .green,
+                    route: parentNodeRoute(parentNodeName)
                 )
             )
         }
@@ -344,14 +355,23 @@ struct NodeDetailView: View {
         return metrics
     }
 
+    private func parentNodeRoute(_ parentNodeName: String) -> Route {
+        if let node = nodeManager.getNode(parentNodeName) {
+            return Route.node(node)
+        }
+        return Route.nodeName(parentNodeName)
+    }
+
     private func nodeAliasSection(_ aliases: [String]) -> some View {
-        VStack(spacing: 8) {
+        HStack(spacing: 8) {
             Label("别名", systemImage: "tag.fill")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
+                .fixedSize()
 
             AliasesView(aliases: aliases)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private struct NodeProfileMetric {
@@ -359,6 +379,7 @@ struct NodeDetailView: View {
         let label: String
         let systemImage: String
         let tint: Color
+        let route: Route?
     }
 
     private func topicsSectionHeader(for node: Node) -> some View {
@@ -521,6 +542,59 @@ struct NodeDetailView: View {
         await reloadTopics(for: name)
     }
 
+    func refreshNodeAndTopics(for currentNode: Node) async {
+        await refreshNodeInfo(for: currentNode)
+        guard !Task.isCancelled else { return }
+        await reloadTopics(for: currentNode.name)
+    }
+
+    func refreshNodeInfo(for currentNode: Node) async {
+        do {
+            guard let refreshedNode = try await V2exAPI.shared.nodesShow(
+                name: currentNode.name
+            ) else {
+                return
+            }
+            let mergedNode = mergeNodeInfo(currentNode, refreshedNode)
+
+            await MainActor.run {
+                guard self.node?.name == currentNode.name else { return }
+                self.node = mergedNode
+            }
+        } catch {
+            if error is CancellationError { return }
+            print("刷新节点信息失败: \(error)")
+        }
+    }
+
+    private func mergeNodeInfo(_ currentNode: Node, _ refreshedNode: Node)
+        -> Node
+    {
+        Node(
+            id: refreshedNode.id ?? currentNode.id,
+            name: refreshedNode.name.isEmpty ? currentNode.name : refreshedNode.name,
+            title: refreshedNode.title ?? currentNode.title,
+            url: refreshedNode.url ?? currentNode.url,
+            topics: refreshedNode.topics ?? currentNode.topics,
+            footer: refreshedNode.footer ?? currentNode.footer,
+            header: refreshedNode.header ?? currentNode.header,
+            headerText: refreshedNode.headerText
+                ?? (refreshedNode.header == nil ? currentNode.headerText : nil),
+            titleAlternative: refreshedNode.titleAlternative
+                ?? currentNode.titleAlternative,
+            avatar: refreshedNode.avatar ?? currentNode.avatar,
+            avatarMini: refreshedNode.avatarMini ?? currentNode.avatarMini,
+            avatarNormal: refreshedNode.avatarNormal ?? currentNode.avatarNormal,
+            avatarLarge: refreshedNode.avatarLarge ?? currentNode.avatarLarge,
+            stars: refreshedNode.stars ?? currentNode.stars,
+            aliases: refreshedNode.aliases ?? currentNode.aliases,
+            root: refreshedNode.root ?? currentNode.root,
+            parentNodeName: refreshedNode.parentNodeName
+                ?? currentNode.parentNodeName
+        )
+        .withResolvedHeaderText()
+    }
+
     func reloadTopics(for name: String) async {
         if userManager.token != nil {
             await loadTopics(name: name, page: 1)
@@ -668,7 +742,7 @@ struct AliasesView: View {
                     aliasChip(alias)
                 }
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
@@ -679,7 +753,7 @@ struct AliasesView: View {
                 .padding(.trailing, 16)
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func aliasChip(_ alias: String) -> some View {
