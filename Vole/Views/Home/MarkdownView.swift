@@ -50,18 +50,18 @@ struct VoleMarkdownView: View {
                 }
             }
         }
-            .overlay {
-                if isPreparingImagePreview {
-                    ProgressView()
-                        .padding(14)
-                        .background(.regularMaterial, in: Circle())
-                }
+        .overlay {
+            if isPreparingImagePreview {
+                ProgressView()
+                    .padding(14)
+                    .background(.regularMaterial, in: Circle())
             }
-            .quickLookPreview($selectedQuickLookURL, in: quickLookURLs)
-            .task(id: content) { @MainActor in
-                onMentionsChanged?(renderedBlocks.mentions)
-            }
-            .environment(\.openURL, OpenURLAction(handler: handleOpenURL))
+        }
+        .quickLookPreview($selectedQuickLookURL, in: quickLookURLs)
+        .task(id: content) { @MainActor in
+            onMentionsChanged?(renderedBlocks.mentions)
+        }
+        .environment(\.openURL, OpenURLAction(handler: handleOpenURL))
     }
 
     private func makeMarkdown(_ content: String) -> (String, [String]) {
@@ -291,37 +291,61 @@ private struct MarkdownLinkPreviewCard: View {
     @Environment(\.openURL) private var openURL
     @State private var preview: MarkdownLinkPreviewData?
     @State private var isLoading = false
+    @State private var cardHeight = Self.estimatedHeight
+
+    private static let estimatedHeight: CGFloat = 196
+    private static let previewImageHeight: CGFloat = 160
+    private static let placeholderHeight: CGFloat = 100
 
     var body: some View {
+        GeometryReader { proxy in
+            let width = max(proxy.size.width, 0)
+            linkButton(width: width)
+                .onGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.size.height
+                } action: { height in
+                    updateCardHeight(height)
+                }
+        }
+        .frame(height: cardHeight)
+        .task(id: url) {
+            await loadPreviewIfNeeded()
+        }
+    }
+
+    private func linkButton(width: CGFloat) -> some View {
         Button {
             openURL(url)
         } label: {
             VStack(alignment: .leading, spacing: 0) {
-                previewImage
+                previewImage(width: width)
 
                 VStack(alignment: .leading, spacing: 8) {
                     Text(displayTitle)
                         .font(.headline)
                         .foregroundStyle(.primary)
                         .lineLimit(2)
+                        .truncationMode(.tail)
                         .multilineTextAlignment(.leading)
 
                     Text(displayHost)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .truncationMode(.middle)
 
                     if let summary = preview?.summary, !summary.isEmpty {
                         Text(summary)
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                             .lineLimit(3)
+                            .truncationMode(.middle)
                             .multilineTextAlignment(.leading)
                     }
                 }
                 .padding(14)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: width, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(Color(.secondarySystemBackground))
@@ -333,19 +357,15 @@ private struct MarkdownLinkPreviewCard: View {
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(.plain)
-        .task(id: url) {
-            await loadPreviewIfNeeded()
-        }
     }
 
     @ViewBuilder
-    private var previewImage: some View {
+    private func previewImage(width: CGFloat) -> some View {
         if let image = preview?.image {
             Image(uiImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
-                .frame(maxWidth: .infinity)
-                .frame(height: 160)
+                .frame(width: width, height: Self.previewImageHeight)
                 .clipped()
         } else {
             ZStack {
@@ -369,9 +389,15 @@ private struct MarkdownLinkPreviewCard: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 100)
+            .frame(width: width, height: Self.placeholderHeight)
         }
+    }
+
+    private func updateCardHeight(_ height: CGFloat) {
+        guard height > 0, abs(cardHeight - height) > 0.5 else {
+            return
+        }
+        cardHeight = height
     }
 
     private var displayTitle: String {
