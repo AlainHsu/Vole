@@ -229,27 +229,29 @@ struct SearchResultView: View {
                 switch selectedCategory {
                 case .topic:
                     if let total = pagingState.totalResults {
+                        let totalText = total.formattedCount
+                        let displayedText = results.count.formattedCount
                         Text(
                             total == results.count
-                                ? "共 \(total) 条结果"
-                                : "共 \(total) 条结果，已展示 \(results.count) 条"
+                                ? "共 \(totalText) 条结果"
+                                : "共 \(totalText) 条结果，已展示 \(displayedText) 条"
                         )
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     } else if !results.isEmpty {
-                        Text("已展示 \(results.count) 条结果")
+                        Text("已展示 \(results.count.formattedCount) 条结果")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
                 case .node:
                     if !nodes.isEmpty {
-                        Text("共 \(nodes.count) 个匹配节点")
+                        Text("共 \(nodes.count.formattedCount) 个匹配节点")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
                 case .user:
                     if !users.isEmpty {
-                        Text("共 \(users.count) 位相关用户")
+                        Text("共 \(users.count.formattedCount) 位相关用户")
                             .font(.footnote)
                             .foregroundColor(.secondary)
                     }
@@ -365,9 +367,11 @@ struct SearchResultView: View {
                 }
             } else if let total = pagingState.totalResults, !results.isEmpty {
                 if results.count >= total {
-                    footerText("已加载全部 \(results.count) 条结果")
+                    footerText("已加载全部 \(results.count.formattedCount) 条结果")
                 } else {
-                    footerText("上滑加载更多 (共 \(total) 条，已展示 \(results.count) 条)")
+                    footerText(
+                        "上滑加载更多 (共 \(total.formattedCount) 条，已展示 \(results.count.formattedCount) 条)"
+                    )
                 }
             }
         }

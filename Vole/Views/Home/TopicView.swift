@@ -257,7 +257,7 @@ struct TopicRow: View {
         HStack(spacing: 4) {
             Image(systemName: systemImage)
                 .foregroundStyle(color)
-            Text("\(value)")
+            Text(value.formattedCount)
                 .foregroundStyle(.secondary)
         }
         .font(.caption.weight(.medium))

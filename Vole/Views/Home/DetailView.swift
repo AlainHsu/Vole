@@ -460,7 +460,7 @@ struct DetailView: View {
             Image(systemName: systemImage)
                 .foregroundStyle(tint)
 
-            Text("\(value)")
+            Text(value.formattedCount)
                 .fontWeight(.semibold)
 
             Text(label)
@@ -589,7 +589,7 @@ struct DetailView: View {
                 .foregroundStyle(.primary)
 
             if let count {
-                Text("\(count)")
+                Text(count.formattedCount)
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(Color.accentColor)
                     .padding(.horizontal, 7)

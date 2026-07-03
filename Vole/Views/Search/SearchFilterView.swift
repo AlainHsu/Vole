@@ -569,7 +569,7 @@ private struct NodeSuggestionItem: Identifiable, Equatable {
 
     var topicsText: String? {
         guard topicCount > 0 else { return nil }
-        return topicCount.formatted()
+        return topicCount.formattedCount
     }
 }
 

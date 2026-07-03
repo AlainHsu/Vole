@@ -315,7 +315,7 @@ struct NodeDetailView: View {
         if let topics = node.topics {
             metrics.append(
                 NodeProfileMetric(
-                    value: "\(topics)",
+                    value: topics.formattedCount,
                     label: "话题",
                     systemImage: "doc.text.fill",
                     tint: .blue
@@ -326,7 +326,7 @@ struct NodeDetailView: View {
         if let stars = node.stars {
             metrics.append(
                 NodeProfileMetric(
-                    value: "\(stars)",
+                    value: stars.formattedCount,
                     label: "收藏",
                     systemImage: "star.fill",
                     tint: .yellow
@@ -380,7 +380,7 @@ struct NodeDetailView: View {
                 .foregroundStyle(.primary)
 
             if count > 0 {
-                Text("\(count)")
+                Text(count.formattedCount)
                     .font(.caption2.weight(.bold))
                     .foregroundStyle(Color.accentColor)
                     .padding(.horizontal, 7)
@@ -709,6 +709,7 @@ struct AliasesView: View {
         topics: 555,
         footer: nil,
         header: nil,
+        headerText: nil,
         titleAlternative: nil,
         avatar: nil,
         avatarMini: nil,

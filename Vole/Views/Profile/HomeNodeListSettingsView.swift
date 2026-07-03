@@ -23,7 +23,7 @@ struct HomeNodeListSettingsView: View {
                         } label: {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(collection.name)
-                                Text("\(collection.nodeNames.count)/10 个节点")
+                                Text("\(collection.nodeNames.count.formattedCount)/10 个节点")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -133,7 +133,7 @@ struct HomeNodeCollectionEditorView: View {
             HStack {
                 Text("已选择")
                 Spacer()
-                Text("\(selectedNodeNames.count)/\(maxNodeCount)")
+                Text("\(selectedNodeNames.count.formattedCount)/\(maxNodeCount.formattedCount)")
                     .foregroundColor(selectionCountColor)
             }
 
@@ -200,7 +200,7 @@ struct HomeNodeCollectionEditorView: View {
                 Spacer()
 
                 if let topics = node.topics, topics > 0 {
-                    Text("\(topics)")
+                    Text(topics.formattedCount)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

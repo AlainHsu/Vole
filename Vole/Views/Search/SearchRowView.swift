@@ -151,7 +151,7 @@ struct SearchRowView: View {
         HStack(spacing: 4) {
             Image(systemName: systemImage)
                 .foregroundStyle(color)
-            Text("\(value)")
+            Text(value.formattedCount)
                 .foregroundStyle(.secondary)
         }
         .font(.subheadline)
