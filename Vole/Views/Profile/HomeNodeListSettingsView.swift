@@ -153,6 +153,7 @@ struct HomeNodeCollectionEditorView: View {
 
     let mode: Mode
 
+    @Environment(\.dismiss) private var dismiss
     @StateObject private var collectionManager = NodeCollectionManager.shared
     @StateObject private var nodeManager = NodeManager.shared
 
@@ -160,7 +161,6 @@ struct HomeNodeCollectionEditorView: View {
     @State private var selectedNodeNames: Set<String>
     @State private var searchText = ""
     @State private var showLimitAlert = false
-    @State private var createdCollection: NodeCollection?
 
     private let maxNodeCount = 10
 
@@ -185,19 +185,32 @@ struct HomeNodeCollectionEditorView: View {
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, prompt: "搜索节点")
+        .toolbar { toolbarContent }
         .task {
             if nodeManager.nodes.isEmpty {
                 await nodeManager.refreshNodes(force: false)
             }
         }
         .onChange(of: name) { _, _ in
-            persistChanges()
+            persistEditChanges()
         }
         .onChange(of: selectedNodeNames) { _, _ in
-            persistChanges()
+            persistEditChanges()
         }
         .alert("最多选择 \(maxNodeCount) 个节点", isPresented: $showLimitAlert) {
             Button("知道了", role: .cancel) {}
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        if case .create = mode {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("保存") {
+                    saveCreatedCollection()
+                }
+                .disabled(!canPersist)
+            }
         }
     }
 
@@ -376,28 +389,27 @@ struct HomeNodeCollectionEditorView: View {
         selectedNodeNames.contains(node.name) ? .accentColor : .secondary
     }
 
-    private func persistChanges() {
+    private func persistEditChanges() {
+        guard canPersist else { return }
+        guard case .edit(let collection) = mode else { return }
+
+        var updated = collection
+        updated.name = trimmedName
+        updated.nodeNames = sortedSelectedNodeNames
+        collectionManager.updateCustomCollection(updated)
+    }
+
+    private func saveCreatedCollection() {
         guard canPersist else { return }
 
-        let nodeNames = Array(selectedNodeNames).sorted()
-        switch mode {
-        case .create:
-            if var createdCollection {
-                createdCollection.name = trimmedName
-                createdCollection.nodeNames = nodeNames
-                collectionManager.updateCustomCollection(createdCollection)
-                self.createdCollection = createdCollection
-            } else {
-                createdCollection = collectionManager.addCustomCollection(
-                    name: trimmedName,
-                    nodeNames: nodeNames
-                )
-            }
-        case .edit(let collection):
-            var updated = collection
-            updated.name = trimmedName
-            updated.nodeNames = nodeNames
-            collectionManager.updateCustomCollection(updated)
-        }
+        collectionManager.addCustomCollection(
+            name: trimmedName,
+            nodeNames: sortedSelectedNodeNames
+        )
+        dismiss()
+    }
+
+    private var sortedSelectedNodeNames: [String] {
+        Array(selectedNodeNames).sorted()
     }
 }
