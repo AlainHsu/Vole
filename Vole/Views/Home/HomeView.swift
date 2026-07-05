@@ -82,6 +82,9 @@ struct HomeView: View {
             .sheet(isPresented: $showProfile) {
                 ProfileView()
             }
+            .onAppear {
+                ensureVisibleSelection()
+            }
             .task(id: selection) {
                 if data[selection] == nil || data[selection]?.isEmpty == true {
                     await loadTopics(for: selection)
@@ -95,7 +98,7 @@ struct HomeView: View {
 
                 guard case .collection(let id) = selection else { return }
                 if !value.contains(where: { $0.id == id }) {
-                    selection = .latest
+                    selection = visibleHomeFeeds.first ?? .latest
                 } else {
                     Task {
                         await loadTopics(for: selection)
@@ -127,7 +130,7 @@ struct HomeView: View {
     private func loadTopics(for feed: HomeFeed) async {
         guard !loadingFeeds.contains(feed) else { return }
         guard let action = action(for: feed) else {
-            selection = .latest
+            selection = visibleHomeFeeds.first ?? .latest
             return
         }
         loadingFeeds.insert(feed)
