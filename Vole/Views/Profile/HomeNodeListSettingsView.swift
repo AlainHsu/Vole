@@ -4,46 +4,16 @@ import SwiftUI
 struct HomeNodeListSettingsView: View {
     @StateObject private var collectionManager = NodeCollectionManager.shared
     @State private var showCreateSheet = false
+    @State private var editMode: EditMode = .inactive
 
     var body: some View {
         List {
-            if collectionManager.customCollections.isEmpty {
-                ContentUnavailableView(
-                    "暂无自定义列表",
-                    systemImage: "list.bullet.rectangle.portrait.fill",
-                    description: Text("创建列表后，它会出现在首页 picker 中。")
-                )
-            } else {
-                Section {
-                    ForEach(collectionManager.customCollections) { collection in
-                        NavigationLink {
-                            HomeNodeCollectionEditorView(
-                                mode: .edit(collection)
-                            )
-                        } label: {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(collection.name)
-                                Text("\(collection.nodeNames.count.formattedCount)/10 个节点")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .onDelete(perform: deleteCollections)
-                }
-            }
+            homeFeedSection
         }
+        .environment(\.editMode, $editMode)
         .navigationTitle("首页列表")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showCreateSheet = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-            }
-        }
+        .toolbar { toolbarContent }
         .sheet(isPresented: $showCreateSheet) {
             NavigationStack {
                 HomeNodeCollectionEditorView(mode: .create)
@@ -51,11 +21,127 @@ struct HomeNodeListSettingsView: View {
         }
     }
 
-    private func deleteCollections(at offsets: IndexSet) {
+    private var homeFeedSection: some View {
+        Section {
+            ForEach(homeFeedItems) { item in
+                homeFeedRow(item)
+            }
+            .onMove(perform: collectionManager.moveHomeFeed)
+            .onDelete(perform: deleteHomeFeeds)
+        } footer: {
+            Text("首页 picker 只显示排序最靠前的 3 个列表。内置列表只能拖动排序。")
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button {
+                toggleEditMode()
+            } label: {
+                Image(systemName: editModeIconName)
+            }
+
+            Button {
+                showCreateSheet = true
+            } label: {
+                Image(systemName: "plus")
+            }
+        }
+    }
+
+    private var homeFeedItems: [HomeFeedSettingsItem] {
+        collectionManager.homeFeedOrderIDs.compactMap(homeFeedItem)
+    }
+
+    private var editModeIconName: String {
+        editMode.isEditing ? "checkmark" : "arrow.up.arrow.down"
+    }
+
+    @ViewBuilder
+    private func homeFeedRow(_ item: HomeFeedSettingsItem) -> some View {
+        switch item.kind {
+        case .builtIn:
+            rowContent(title: item.title, subtitle: item.subtitle)
+                .deleteDisabled(true)
+        case .collection(let collection):
+            NavigationLink {
+                HomeNodeCollectionEditorView(mode: .edit(collection))
+            } label: {
+                rowContent(title: item.title, subtitle: item.subtitle)
+            }
+        }
+    }
+
+    private func rowContent(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func homeFeedItem(for id: String) -> HomeFeedSettingsItem? {
+        switch id {
+        case NodeCollectionManager.latestFeedID:
+            return .builtIn(id: id, title: "最新")
+        case NodeCollectionManager.hotFeedID:
+            return .builtIn(id: id, title: "热门")
+        default:
+            return collectionFeedItem(for: id)
+        }
+    }
+
+    private func collectionFeedItem(for id: String) -> HomeFeedSettingsItem? {
+        guard let feed = HomeFeed(id: id, collectionManager: collectionManager),
+            case .collection(let collectionID) = feed,
+            let collection = collectionManager.customCollection(id: collectionID)
+        else { return nil }
+
+        return HomeFeedSettingsItem(
+            id: id,
+            title: collection.name,
+            subtitle: "\(collection.nodeNames.count.formattedCount)/10 个节点",
+            kind: .collection(collection)
+        )
+    }
+
+    private func toggleEditMode() {
+        withAnimation {
+            editMode = editMode.isEditing ? .inactive : .active
+        }
+    }
+
+    private func deleteHomeFeeds(at offsets: IndexSet) {
+        let items = homeFeedItems
         for index in offsets {
-            let collection = collectionManager.customCollections[index]
+            guard case .collection(let collection) = items[index].kind
+            else { continue }
             collectionManager.removeCustomCollection(collection)
         }
+    }
+}
+
+private struct HomeFeedSettingsItem: Identifiable {
+    enum Kind {
+        case builtIn
+        case collection(NodeCollection)
+    }
+
+    let id: String
+    let title: String
+    let subtitle: String
+    let kind: Kind
+
+    static func builtIn(id: String, title: String) -> HomeFeedSettingsItem {
+        HomeFeedSettingsItem(
+            id: id,
+            title: title,
+            subtitle: "内置列表",
+            kind: .builtIn
+        )
     }
 }
 
@@ -67,7 +153,6 @@ struct HomeNodeCollectionEditorView: View {
 
     let mode: Mode
 
-    @Environment(\.dismiss) private var dismiss
     @StateObject private var collectionManager = NodeCollectionManager.shared
     @StateObject private var nodeManager = NodeManager.shared
 
@@ -75,6 +160,7 @@ struct HomeNodeCollectionEditorView: View {
     @State private var selectedNodeNames: Set<String>
     @State private var searchText = ""
     @State private var showLimitAlert = false
+    @State private var createdCollection: NodeCollection?
 
     private let maxNodeCount = 10
 
@@ -99,23 +185,16 @@ struct HomeNodeCollectionEditorView: View {
         .navigationTitle(navigationTitle)
         .navigationBarTitleDisplayMode(.inline)
         .searchable(text: $searchText, prompt: "搜索节点")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("取消") {
-                    dismiss()
-                }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("保存") {
-                    save()
-                }
-                .disabled(!canSave)
-            }
-        }
         .task {
             if nodeManager.nodes.isEmpty {
                 await nodeManager.refreshNodes(force: false)
             }
+        }
+        .onChange(of: name) { _, _ in
+            persistChanges()
+        }
+        .onChange(of: selectedNodeNames) { _, _ in
+            persistChanges()
         }
         .alert("最多选择 \(maxNodeCount) 个节点", isPresented: $showLimitAlert) {
             Button("知道了", role: .cancel) {}
@@ -254,7 +333,7 @@ struct HomeNodeCollectionEditorView: View {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var canSave: Bool {
+    private var canPersist: Bool {
         !trimmedName.isEmpty && !selectedNodeNames.isEmpty
     }
 
@@ -297,20 +376,28 @@ struct HomeNodeCollectionEditorView: View {
         selectedNodeNames.contains(node.name) ? .accentColor : .secondary
     }
 
-    private func save() {
+    private func persistChanges() {
+        guard canPersist else { return }
+
         let nodeNames = Array(selectedNodeNames).sorted()
         switch mode {
         case .create:
-            collectionManager.addCustomCollection(
-                name: trimmedName,
-                nodeNames: nodeNames
-            )
+            if var createdCollection {
+                createdCollection.name = trimmedName
+                createdCollection.nodeNames = nodeNames
+                collectionManager.updateCustomCollection(createdCollection)
+                self.createdCollection = createdCollection
+            } else {
+                createdCollection = collectionManager.addCustomCollection(
+                    name: trimmedName,
+                    nodeNames: nodeNames
+                )
+            }
         case .edit(let collection):
             var updated = collection
             updated.name = trimmedName
             updated.nodeNames = nodeNames
             collectionManager.updateCustomCollection(updated)
         }
-        dismiss()
     }
 }

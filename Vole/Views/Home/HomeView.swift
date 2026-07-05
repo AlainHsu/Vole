@@ -63,7 +63,7 @@ struct HomeView: View {
                     ToolbarItem(placement: .topBarLeading) {
                         HomeFeedPicker(
                             selection: $selection,
-                            collections: collectionManager.customCollections
+                            feeds: visibleHomeFeeds
                         )
                     }
                     ToolbarItem(placement: .navigationBarTrailing) {
@@ -102,7 +102,25 @@ struct HomeView: View {
                     }
                 }
             }
+            .onChange(of: collectionManager.homeFeedOrderIDs) { _, _ in
+                ensureVisibleSelection()
+            }
         }
+    }
+
+    private var orderedHomeFeeds: [HomeFeed] {
+        HomeFeed.orderedFeeds(using: collectionManager)
+    }
+
+    private var visibleHomeFeeds: [HomeFeed] {
+        Array(orderedHomeFeeds.prefix(3))
+    }
+
+    private func ensureVisibleSelection() {
+        guard !visibleHomeFeeds.contains(selection),
+            let firstFeed = visibleHomeFeeds.first
+        else { return }
+        selection = firstFeed
     }
 
     @MainActor
@@ -201,15 +219,12 @@ extension View {
 
 struct HomeFeedPicker: View {
     @Binding var selection: HomeFeed
-    let collections: [NodeCollection]
+    let feeds: [HomeFeed]
 
     var body: some View {
         Picker("category", selection: $selection) {
-            ForEach(HomeFeed.builtInFeeds) { item in
-                Text(item.title).tag(item)
-            }
-            ForEach(collections) { collection in
-                Text(collection.name).tag(HomeFeed.collection(collection.id))
+            ForEach(feeds) { feed in
+                Text(feed.title).tag(feed)
             }
         }
         .pickerStyle(.segmented)
@@ -354,14 +369,64 @@ enum HomeFeed: Hashable, Identifiable {
         }
     }
 
+    @MainActor
     var title: String {
         switch self {
         case .latest:
             return "最新"
         case .hot:
             return "热门"
-        case .collection:
-            return ""
+        case .collection(let id):
+            return NodeCollectionManager.shared.customCollection(id: id)?.name ?? ""
+        }
+    }
+}
+
+extension HomeFeed {
+    @MainActor
+    static func orderedFeeds(
+        using collectionManager: NodeCollectionManager
+    ) -> [HomeFeed] {
+        collectionManager.homeFeedOrderIDs.compactMap {
+            HomeFeed(id: $0, collectionManager: collectionManager)
+        }
+    }
+
+    @MainActor
+    static func visibleFeeds(
+        using collectionManager: NodeCollectionManager
+    ) -> [HomeFeed] {
+        Array(orderedFeeds(using: collectionManager).prefix(3))
+    }
+
+    @MainActor
+    init?(id: String, collectionManager: NodeCollectionManager) {
+        if id == NodeCollectionManager.latestFeedID {
+            self = .latest
+            return
+        }
+        if id == NodeCollectionManager.hotFeedID {
+            self = .hot
+            return
+        }
+
+        let prefix = "collection:"
+        guard id.hasPrefix(prefix) else { return nil }
+        let rawID = String(id.dropFirst(prefix.count))
+        guard let uuid = UUID(uuidString: rawID),
+            collectionManager.customCollection(id: uuid) != nil
+        else { return nil }
+        self = .collection(uuid)
+    }
+
+    var feedID: String {
+        switch self {
+        case .latest:
+            return NodeCollectionManager.latestFeedID
+        case .hot:
+            return NodeCollectionManager.hotFeedID
+        case .collection(let id):
+            return NodeCollectionManager.collectionFeedID(id)
         }
     }
 }

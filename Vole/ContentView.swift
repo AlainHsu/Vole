@@ -55,7 +55,7 @@ struct ContentView: View {
                 .homeFeedBottomAccessory(
                     isEnabled: selection == .home,
                     selection: $homeFeedSelection,
-                    collections: collectionManager.customCollections
+                    feeds: HomeFeed.visibleFeeds(using: collectionManager)
                 )
             } else {
                 TabView(selection: $selection) {
@@ -109,7 +109,7 @@ enum TabID: Hashable {
 private struct HomeFeedBottomAccessoryModifier: ViewModifier {
     let isEnabled: Bool
     @Binding var selection: HomeFeed
-    let collections: [NodeCollection]
+    let feeds: [HomeFeed]
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -117,7 +117,7 @@ private struct HomeFeedBottomAccessoryModifier: ViewModifier {
             content.tabViewBottomAccessory(isEnabled: isEnabled) {
                 HomeFeedPicker(
                     selection: $selection,
-                    collections: collections
+                    feeds: feeds
                 )
                 .frame(maxWidth: 360)
                 .padding(.horizontal, 8)
@@ -127,7 +127,7 @@ private struct HomeFeedBottomAccessoryModifier: ViewModifier {
                 content.tabViewBottomAccessory {
                     HomeFeedPicker(
                         selection: $selection,
-                        collections: collections
+                        feeds: feeds
                     )
                     .frame(maxWidth: 360)
                     .padding(.horizontal, 8)
@@ -144,13 +144,13 @@ private extension View {
     func homeFeedBottomAccessory(
         isEnabled: Bool,
         selection: Binding<HomeFeed>,
-        collections: [NodeCollection]
+        feeds: [HomeFeed]
     ) -> some View {
         modifier(
             HomeFeedBottomAccessoryModifier(
                 isEnabled: isEnabled,
                 selection: selection,
-                collections: collections
+                feeds: feeds
             )
         )
     }

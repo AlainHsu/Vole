@@ -14,13 +14,17 @@ final class NodeCollectionManager: ObservableObject {
 
     @Published private(set) var collections: [NodeCollection] = []
     @Published private(set) var customCollections: [NodeCollection] = []
+    @Published private(set) var homeFeedOrderIDs: [String] = []
 
     private let saveKey = "node_collections_v1"
     private let customSaveKey = "home_node_collections_v1"
+    private let homeFeedOrderKey = "home_feed_order_v1"
 
     init() {
         collections = Self.defaultCollections
         loadCustomCollections()
+        loadHomeFeedOrder()
+        normalizeHomeFeedOrder()
     }
 
     // MARK: - CRUD 集合
@@ -39,12 +43,16 @@ final class NodeCollectionManager: ObservableObject {
         )
         customCollections.append(new)
         saveCustomCollections()
+        homeFeedOrderIDs.append(Self.collectionFeedID(new.id))
+        saveHomeFeedOrder()
         return new
     }
 
     func removeCustomCollection(_ c: NodeCollection) {
         customCollections.removeAll { $0.id == c.id }
         saveCustomCollections()
+        homeFeedOrderIDs.removeAll { $0 == Self.collectionFeedID(c.id) }
+        saveHomeFeedOrder()
     }
 
     func updateCustomCollection(_ c: NodeCollection) {
@@ -82,6 +90,12 @@ final class NodeCollectionManager: ObservableObject {
 
     func customCollection(id: UUID) -> NodeCollection? {
         customCollections.first { $0.id == id }
+    }
+
+    func moveHomeFeed(from source: IndexSet, to destination: Int) {
+        normalizeHomeFeedOrder()
+        homeFeedOrderIDs.move(fromOffsets: source, toOffset: destination)
+        saveHomeFeedOrder()
     }
 
     func addCollection(name: String, color: String, symbol: String) {
@@ -158,6 +172,32 @@ final class NodeCollectionManager: ObservableObject {
         else { return }
         customCollections = value
     }
+
+    private func saveHomeFeedOrder() {
+        UserDefaults.standard.set(homeFeedOrderIDs, forKey: homeFeedOrderKey)
+    }
+
+    private func loadHomeFeedOrder() {
+        homeFeedOrderIDs =
+            UserDefaults.standard.stringArray(forKey: homeFeedOrderKey) ?? []
+    }
+
+    private func normalizeHomeFeedOrder() {
+        let availableIDs = Self.builtInHomeFeedIDs
+            + customCollections.map { Self.collectionFeedID($0.id) }
+        var seen: Set<String> = []
+        var normalized = homeFeedOrderIDs.filter { id in
+            availableIDs.contains(id) && seen.insert(id).inserted
+        }
+
+        for id in availableIDs where !seen.contains(id) {
+            normalized.append(id)
+        }
+
+        guard normalized != homeFeedOrderIDs else { return }
+        homeFeedOrderIDs = normalized
+        saveHomeFeedOrder()
+    }
 }
 
 @MainActor
@@ -207,6 +247,16 @@ final class FavoriteNodeManager: ObservableObject {
             let value = try? JSONDecoder().decode([Node].self, from: data)
         else { return }
         favoriteNodes = value.map { $0.withResolvedHeaderText() }
+    }
+}
+
+extension NodeCollectionManager {
+    nonisolated static let latestFeedID = "latest"
+    nonisolated static let hotFeedID = "hot"
+    nonisolated static let builtInHomeFeedIDs = [latestFeedID, hotFeedID]
+
+    nonisolated static func collectionFeedID(_ id: UUID) -> String {
+        "collection:\(id.uuidString)"
     }
 }
 
