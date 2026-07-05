@@ -19,6 +19,13 @@ final class NotifyManager: ObservableObject {
         let newCount: Int
     }
 
+    private struct NotificationCache: Codable {
+        let notifications: [Notification]
+        let totalCount: Int
+        let currentPage: Int
+        let endIndex: Int
+    }
+
     @Published var notifications: [Notification] = []
     @Published var totalCount: Int = 0
     @Published private var latestTotalCount: Int = 0
@@ -39,11 +46,13 @@ final class NotifyManager: ObservableObject {
     private let keyLastReadId = "last_read_all_id"
     private let keyAllReadTotal = "all_read_total_count"
 
+    private let cacheDirectoryName = "NotificationCache"
     private var pollingTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()  // 用于存放订阅对象
     private var pendingRefreshPayload: PendingRefreshPayload?
     private var isAppActive = true
     private var isNotificationServiceActive = false
+    private var loadedCacheAccountID: String?
 
     private var canLoadNotifications: Bool {
         UserManager.shared.didValidateStoredToken
@@ -96,6 +105,7 @@ final class NotifyManager: ObservableObject {
 
         isNotificationServiceActive = true
         print("NotifyManager: 认证状态可用，启动服务")
+        loadCachedNotificationsIfNeeded()
         startPollingIfNeeded()
         Task {
             await refresh()
@@ -115,6 +125,7 @@ final class NotifyManager: ObservableObject {
         latestTotalCount = 0
         currentPage = 1
         endIndex = 0
+        loadedCacheAccountID = nil
         clearPendingRefresh()
     }
 
@@ -241,6 +252,7 @@ final class NotifyManager: ObservableObject {
                     self.totalCount = response.totalCount
                     self.endIndex = min(self.notifications.count, response.totalCount)
                     self.currentPage = page
+                    self.saveNotificationCache()
                 }
             }
         } catch {
@@ -397,5 +409,78 @@ final class NotifyManager: ObservableObject {
 
         let pageSize = max(newNotifications.count, 1)
         currentPage = max(1, Int(ceil(Double(max(loadedCount, 1)) / Double(pageSize))))
+        saveNotificationCache()
+    }
+
+    private func loadCachedNotificationsIfNeeded() {
+        guard notifications.isEmpty else { return }
+        guard let accountID = notificationCacheAccountID else { return }
+        guard loadedCacheAccountID != accountID else { return }
+
+        loadedCacheAccountID = accountID
+
+        guard let cacheURL = notificationCacheURL(for: accountID) else { return }
+
+        guard FileManager.default.fileExists(atPath: cacheURL.path) else { return }
+
+        do {
+            let data = try Data(contentsOf: cacheURL)
+            let cache = try JSONDecoder().decode(NotificationCache.self, from: data)
+            notifications = cache.notifications
+            totalCount = cache.totalCount
+            currentPage = max(1, cache.currentPage)
+            endIndex = min(cache.endIndex, cache.totalCount)
+        } catch {
+            print("读取通知缓存失败: \(error)")
+        }
+    }
+
+    private func saveNotificationCache() {
+        guard let accountID = notificationCacheAccountID else { return }
+        guard let cacheURL = notificationCacheURL(for: accountID) else { return }
+
+        let cache = NotificationCache(
+            notifications: notifications,
+            totalCount: totalCount,
+            currentPage: currentPage,
+            endIndex: endIndex
+        )
+
+        do {
+            let data = try JSONEncoder().encode(cache)
+            try FileManager.default.createDirectory(
+                at: cacheURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try data.write(to: cacheURL, options: .atomic)
+        } catch {
+            print("保存通知缓存失败: \(error)")
+        }
+    }
+
+    private var notificationCacheAccountID: String? {
+        guard let member = UserManager.shared.currentMember else { return nil }
+        if let id = member.id {
+            return "id-\(id)"
+        }
+        return "username-\(member.username)"
+    }
+
+    private func notificationCacheURL(for accountID: String) -> URL? {
+        guard let applicationSupportURL = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-_"))
+        let fileName = accountID.unicodeScalars.map { scalar in
+            allowed.contains(scalar) ? String(scalar) : "_"
+        }.joined()
+
+        return applicationSupportURL
+            .appendingPathComponent(cacheDirectoryName, isDirectory: true)
+            .appendingPathComponent("\(fileName).json")
     }
 }
