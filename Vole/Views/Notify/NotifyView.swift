@@ -83,17 +83,12 @@ struct NotifyView: View {
     }
 
     private var notificationList: some View {
-        List {
-            Section(footer: footerView) {
+        ScrollView {
+            LazyVStack(spacing: 12) {
                 ForEach(notifyManager.notifications, id: \.id) { item in
                     NotifyRowView(item: item) { topicId in
                         navManager.notifyPath.append(Route.topicId(topicId))
                     }
-                    .listRowInsets(
-                        EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16)
-                    )
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
                     .onAppear {
                         if item.id == notifyManager.notifications.last?.id {
                             Task {
@@ -102,11 +97,13 @@ struct NotifyView: View {
                         }
                     }
                 }
+
+                footerView
             }
-            .listSectionSeparator(.hidden)
+            .padding(.horizontal, 16)
+            .padding(.top, 6)
+            .padding(.bottom, 12)
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
         .background(Color(.systemGroupedBackground))
         .homeLikeListTopInset()
         .safeAreaInset(edge: .top, spacing: 8) {
@@ -173,14 +170,12 @@ struct NotifyView: View {
             }
             .frame(maxWidth: .infinity, alignment: .center)
             .padding(.vertical, 12)
-            .listRowSeparator(.hidden)
         } else if notifyManager.totalCount > 0 {
             Text("已加载全部 \(notifyManager.totalCount) 条通知")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 12)
-                .listRowSeparator(.hidden)
         }
     }
 
