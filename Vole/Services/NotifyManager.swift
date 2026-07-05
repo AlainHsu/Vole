@@ -22,6 +22,7 @@ final class NotifyManager: ObservableObject {
     private struct NotificationCache: Codable {
         let notifications: [Notification]
         let totalCount: Int
+        let latestTotalCount: Int?
         let currentPage: Int
         let endIndex: Int
     }
@@ -428,6 +429,7 @@ final class NotifyManager: ObservableObject {
             let cache = try JSONDecoder().decode(NotificationCache.self, from: data)
             notifications = cache.notifications
             totalCount = cache.totalCount
+            latestTotalCount = cache.latestTotalCount ?? cache.totalCount
             currentPage = max(1, cache.currentPage)
             endIndex = min(cache.endIndex, cache.totalCount)
         } catch {
@@ -442,6 +444,7 @@ final class NotifyManager: ObservableObject {
         let cache = NotificationCache(
             notifications: notifications,
             totalCount: totalCount,
+            latestTotalCount: latestTotalCount,
             currentPage: currentPage,
             endIndex: endIndex
         )
