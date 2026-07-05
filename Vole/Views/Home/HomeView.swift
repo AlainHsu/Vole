@@ -34,6 +34,7 @@ struct HomeView: View {
                     openTopic(topic)
                 }
             )
+            .id(selection.id)
             .navigationTitle("主页")
             .modifier(HomeTitleDisplayModeModifier())
             .navigationDestination(for: Route.self) { route in
