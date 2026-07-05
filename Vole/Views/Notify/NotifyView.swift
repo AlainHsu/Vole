@@ -103,6 +103,7 @@ struct NotifyView: View {
                     }
                 }
             }
+            .listSectionSeparator(.hidden)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -179,6 +180,7 @@ struct NotifyView: View {
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .center)
                 .padding(.vertical, 12)
+                .listRowSeparator(.hidden)
         }
     }
 
