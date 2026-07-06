@@ -195,7 +195,7 @@ struct SearchResultView: View {
             ForEach(nodes) { node in
                 NodeRowView(node: node)
                     .onTapGesture {
-                        path.append(Route.nodeName(node.name))
+                        path.append(Route.node(node))
                     }
             }
 
