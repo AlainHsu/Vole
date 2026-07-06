@@ -223,10 +223,6 @@ struct NodeDetailView: View {
             }
 
             nodeInfoStrip(node)
-
-//             if let aliases = node.aliases, !aliases.isEmpty {
-//                 nodeAliasSection(aliases)
-//             }
         }
         .frame(maxWidth: .infinity)
     }
@@ -360,18 +356,6 @@ struct NodeDetailView: View {
             return Route.node(node)
         }
         return Route.nodeName(parentNodeName)
-    }
-
-    private func nodeAliasSection(_ aliases: [String]) -> some View {
-        HStack(spacing: 8) {
-            Label("别名", systemImage: "tag.fill")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .fixedSize()
-
-            AliasesView(aliases: aliases)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private struct NodeProfileMetric {
@@ -728,42 +712,6 @@ private struct NodeDetailStateView: View {
         .padding(.horizontal, 32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(.systemGroupedBackground))
-    }
-}
-
-// aliases 标签视图
-struct AliasesView: View {
-    let aliases: [String]
-
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) {
-                ForEach(aliases, id: \.self) { alias in
-                    aliasChip(alias)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(aliases, id: \.self) { alias in
-                        aliasChip(alias)
-                    }
-                }
-                .padding(.trailing, 16)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func aliasChip(_ alias: String) -> some View {
-        Text(alias)
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .background(Color.secondary.opacity(0.10))
-            .clipShape(Capsule())
     }
 }
 
