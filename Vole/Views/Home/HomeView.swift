@@ -10,7 +10,7 @@ import SwiftUI
 struct HomeView: View {
 
     @Binding var selection: HomeFeed
-    @State private var data: [HomeFeed: [Topic]] = [:]
+    @State private var topicsByFeed: [HomeFeed: [Topic]] = [:]
     @State private var showProfile = false
     @State private var loadingFeeds: Set<HomeFeed> = []
 
@@ -23,18 +23,20 @@ struct HomeView: View {
     }
 
     var body: some View {
+        let feed = displayedFeed
+
         NavigationStack(path: $navManager.homePath) {
             HomeFeedPage(
-                topics: data[selection],
-                isLoading: loadingFeeds.contains(selection),
+                topics: topicsByFeed[feed],
+                isLoading: loadingFeeds.contains(feed),
                 onLoad: {
-                    await loadTopics(for: selection)
+                    await loadTopics(for: feed)
                 },
                 onSelectTopic: { topic in
                     openTopic(topic)
                 }
             )
-            .id(selection.id)
+            .id(feed.id)
             .navigationTitle("主页")
             .modifier(HomeTitleDisplayModeModifier())
             .navigationDestination(for: Route.self) { route in
@@ -85,23 +87,22 @@ struct HomeView: View {
             .onAppear {
                 ensureVisibleSelection()
             }
-            .task(id: selection) {
-                if data[selection] == nil || data[selection]?.isEmpty == true {
-                    await loadTopics(for: selection)
-                }
+            .task(id: feed) {
+                await loadTopicsIfNeeded(for: feed)
             }
             .onChange(of: collectionManager.customCollections) { _, value in
-                data = data.filter { key, _ in
+                topicsByFeed = topicsByFeed.filter { key, _ in
                     if case .collection = key { return false }
                     return true
                 }
 
                 guard case .collection(let id) = selection else { return }
                 if !value.contains(where: { $0.id == id }) {
-                    selection = visibleHomeFeeds.first ?? .latest
+                    ensureVisibleSelection()
                 } else {
+                    let feed = displayedFeed
                     Task {
-                        await loadTopics(for: selection)
+                        await loadTopics(for: feed)
                     }
                 }
             }
@@ -111,33 +112,43 @@ struct HomeView: View {
         }
     }
 
-    private var orderedHomeFeeds: [HomeFeed] {
-        HomeFeed.orderedFeeds(using: collectionManager)
+    private var visibleHomeFeeds: [HomeFeed] {
+        HomeFeed.visibleFeeds(using: collectionManager)
     }
 
-    private var visibleHomeFeeds: [HomeFeed] {
-        Array(orderedHomeFeeds.prefix(3))
+    private var displayedFeed: HomeFeed {
+        resolvedFeed(for: selection)
+    }
+
+    private func resolvedFeed(for feed: HomeFeed) -> HomeFeed {
+        visibleHomeFeeds.contains(feed) ? feed : visibleHomeFeeds.first ?? .latest
     }
 
     private func ensureVisibleSelection() {
-        guard !visibleHomeFeeds.contains(selection),
-            let firstFeed = visibleHomeFeeds.first
+        let resolvedFeed = resolvedFeed(for: selection)
+        guard selection != resolvedFeed else { return }
+        selection = resolvedFeed
+    }
+
+    @MainActor
+    private func loadTopicsIfNeeded(for feed: HomeFeed) async {
+        guard topicsByFeed[feed] == nil || topicsByFeed[feed]?.isEmpty == true
         else { return }
-        selection = firstFeed
+        await loadTopics(for: feed)
     }
 
     @MainActor
     private func loadTopics(for feed: HomeFeed) async {
         guard !loadingFeeds.contains(feed) else { return }
         guard let action = action(for: feed) else {
-            selection = visibleHomeFeeds.first ?? .latest
+            ensureVisibleSelection()
             return
         }
         loadingFeeds.insert(feed)
         defer { loadingFeeds.remove(feed) }
         do {
             let result = try await action()
-            data[feed] = result ?? []
+            topicsByFeed[feed] = result ?? []
         } catch {
             if error is CancellationError { return }
             print("出错了: \(error)")
@@ -244,7 +255,7 @@ private struct HomeFeedPage: View {
         Group {
             if let topics, !topics.isEmpty {
                 topicList(topics)
-            } else if isLoading {
+            } else if topics == nil || isLoading {
                 HomeFeedStateView(
                     systemImage: "arrow.triangle.2.circlepath",
                     title: "正在加载主题",
