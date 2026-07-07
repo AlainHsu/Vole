@@ -11,6 +11,7 @@ import SwiftUI
 struct MemberView: View {
     @ObservedObject private var userManager: UserManager = .shared
     @Environment(\.dismiss) private var dismiss
+    @State private var showLogoutConfirmation = false
     var member: Member?
 
     var onLogin: (() -> Void)?
@@ -60,7 +61,7 @@ struct MemberView: View {
 
                     Section {
                         Button(role: .destructive) {
-                            onLogout?()
+                            showLogoutConfirmation = true
                         } label: {
                             ProfileProminentAction(
                                 title: "退出登录",
@@ -95,6 +96,14 @@ struct MemberView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle("我的信息")
             .navigationBarTitleDisplayMode(.inline)
+            .alert("确定退出登录？", isPresented: $showLogoutConfirmation) {
+                Button("取消", role: .cancel) {}
+                Button("退出登录", role: .destructive) {
+                    onLogout?()
+                }
+            } message: {
+                Text("退出后会删除保存在设备 Keychain 中的 Token，并清除本地账户资料。")
+            }
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     NavigationLink {
