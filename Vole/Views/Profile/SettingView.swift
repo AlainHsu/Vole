@@ -6,6 +6,7 @@ struct SettingView: View {
     @AppStorage("appTheme") private var selectedTheme: AppTheme = .blue
 
     @State private var showStore = false
+    @State private var purchasingProductID: String?
     @StateObject private var storeManager = StoreManager.shared
     @StateObject private var siteConfigurationStore = SiteConfigurationStore.shared
 
@@ -185,26 +186,36 @@ struct SettingView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("设置")
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog(
-            "选择金额",
-            isPresented: $showStore,
-            titleVisibility: .visible
-        ) {
-            ForEach(storeManager.products, id: \.id) { product in
-                Button("\(product.displayName) - \(product.displayPrice)") {
-                    Task {
-                        let success = await storeManager.purchase(product)
-                        if success {
-                            print("购买成功，可以更新本地余额或显示提示")
-                        } else {
-                            print("购买失败或取消")
-                        }
-                    }
+        .sheet(isPresented: $showStore) {
+            CoffeeSupportDialog(
+                products: storeManager.products,
+                purchasingProductID: purchasingProductID,
+                onPurchase: { product in
+                    purchase(product)
+                },
+                onDismiss: {
+                    showStore = false
                 }
-            }
+            )
+            .presentationDetents([.height(420)])
+            .presentationDragIndicator(.visible)
         }
         .task {
             await storeManager.loadProducts()
+        }
+    }
+
+    private func purchase(_ product: Product) {
+        guard purchasingProductID == nil else { return }
+        purchasingProductID = product.id
+
+        Task {
+            let success = await storeManager.purchase(product)
+            purchasingProductID = nil
+
+            if success {
+                showStore = false
+            }
         }
     }
 
@@ -225,6 +236,138 @@ struct SettingView: View {
             .labelsHidden()
             .tint(selectedTheme.color)
         }
+    }
+}
+
+private struct CoffeeSupportDialog: View {
+    let products: [Product]
+    let purchasingProductID: String?
+    let onPurchase: (Product) -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(spacing: 22) {
+            VStack(spacing: 12) {
+                CoffeeIcon()
+
+                VStack(spacing: 8) {
+                    Text("可以请我喝杯咖啡吗？")
+                        .font(.title3.weight(.semibold))
+                        .multilineTextAlignment(.center)
+
+                    Text("如果 Vole 对你有帮助，可以用一杯咖啡支持后续维护。")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            VStack(spacing: 10) {
+                if products.isEmpty {
+                    CoffeeLoadingView()
+                } else {
+                    ForEach(products, id: \.id) { product in
+                        CoffeeProductButton(
+                            product: product,
+                            isPurchasing: purchasingProductID == product.id
+                        ) {
+                            onPurchase(product)
+                        }
+                        .disabled(purchasingProductID != nil)
+                    }
+                }
+            }
+
+            Button("稍后再说") {
+                onDismiss()
+            }
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.secondary)
+            .disabled(purchasingProductID != nil)
+        }
+        .padding(.horizontal, 24)
+        .padding(.top, 30)
+        .padding(.bottom, 18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(.systemGroupedBackground))
+    }
+}
+
+private struct CoffeeIcon: View {
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(Color.orange.opacity(0.14))
+                .frame(width: 58, height: 58)
+
+            Image(systemName: "cup.and.heat.waves")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(.orange)
+        }
+    }
+}
+
+private struct CoffeeLoadingView: View {
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+
+            Text("正在准备咖啡选项")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 50)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+        )
+    }
+}
+
+private struct CoffeeProductButton: View {
+    let product: Product
+    let isPurchasing: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(product.displayName)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+
+                    Text("支持维护")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                if isPurchasing {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Text(product.displayPrice)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Color.orange)
+                }
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 54)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color(.secondarySystemGroupedBackground))
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(Color.orange.opacity(0.16), lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
     }
 }
 
