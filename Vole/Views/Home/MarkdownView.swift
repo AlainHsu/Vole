@@ -17,7 +17,7 @@ import UniformTypeIdentifiers
 enum LinkAction {
     case mention(username: String)
     case topic(id: Int)
-    case node(id: Int)
+    case node(name: String)
 }
 
 struct VoleMarkdownView: View {
@@ -104,6 +104,12 @@ struct VoleMarkdownView: View {
         MarkdownView(markdown)
             .markdownElementRenderer(.image(renderer, urlScheme: "http"))
             .markdownElementRenderer(.image(renderer, urlScheme: "https"))
+            .markdownElementRenderer(
+                .link(VoleMarkdownLinkRenderer(), urlScheme: "http")
+            )
+            .markdownElementRenderer(
+                .link(VoleMarkdownLinkRenderer(), urlScheme: "https")
+            )
             .markdownTableStyle(HorizontalScrollableMarkdownTableStyle())
             .font(.headline.weight(.semibold), for: .h1)
             .font(.headline.weight(.semibold), for: .h2)
@@ -127,8 +133,8 @@ struct VoleMarkdownView: View {
             return .handled
         }
 
-        if let topicId = url.v2exTopicID {
-            onLinkAction?(.topic(id: topicId))
+        if let action = VoleMarkdownLinkDestination(url: url).linkAction {
+            onLinkAction?(action)
             return .handled
         }
 
@@ -198,6 +204,149 @@ struct VoleMarkdownView: View {
 private enum MarkdownRenderBlock {
     case markdown(String)
     case linkPreview(url: URL, title: String?)
+}
+
+private enum VoleMarkdownLinkDestination {
+    case topic(Int)
+    case node(String)
+    case external
+
+    init(url: URL) {
+        if let topicID = url.v2exTopicID {
+            self = .topic(topicID)
+        } else if let nodeName = url.v2exNodeName {
+            self = .node(nodeName)
+        } else {
+            self = .external
+        }
+    }
+
+    var badgeTitle: String {
+        switch self {
+        case .topic:
+            return "话题"
+        case .node:
+            return "节点"
+        case .external:
+            return "浏览器"
+        }
+    }
+
+    var internalTitle: String? {
+        switch self {
+        case .topic(let id):
+            return "话题 #\(id)"
+        case .node(let name):
+            return "节点 \(name)"
+        case .external:
+            return nil
+        }
+    }
+
+    var linkAction: LinkAction? {
+        switch self {
+        case .topic(let id):
+            return .topic(id: id)
+        case .node(let name):
+            return .node(name: name)
+        case .external:
+            return nil
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .topic:
+            return "text.bubble"
+        case .node:
+            return "square.grid.2x2"
+        case .external:
+            return "arrow.up.right"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .topic, .node:
+            return Color.accentColor
+        case .external:
+            return .secondary
+        }
+    }
+
+    var isInternal: Bool {
+        switch self {
+        case .topic, .node:
+            return true
+        case .external:
+            return false
+        }
+    }
+}
+
+private struct VoleMarkdownLinkRenderer: MarkdownLinkRenderer {
+    func makeBody(configuration: Configuration) -> some View {
+        let destination = VoleMarkdownLinkDestination(url: configuration.url)
+
+        Link(destination: configuration.url) {
+            if destination.isInternal {
+                MarkdownInternalLinkPill(destination: destination)
+            } else {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    configuration.label
+                    Image(systemName: destination.systemImage)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(destination.tint)
+                        .accessibilityLabel(destination.badgeTitle)
+                }
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct MarkdownInternalLinkPill: View {
+    let destination: VoleMarkdownLinkDestination
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: destination.systemImage)
+                .font(.system(size: 11, weight: .semibold))
+
+            Text(destination.internalTitle ?? destination.badgeTitle)
+                .font(.subheadline.weight(.semibold))
+        }
+        .foregroundStyle(destination.tint)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(
+            Capsule()
+                .fill(destination.tint.opacity(0.09))
+        )
+        .overlay {
+            Capsule()
+                .stroke(destination.tint.opacity(0.18), lineWidth: 1)
+        }
+        .accessibilityLabel(
+            destination.internalTitle ?? destination.badgeTitle
+        )
+    }
+}
+
+private struct MarkdownLinkDestinationBadge: View {
+    let destination: VoleMarkdownLinkDestination
+
+    var body: some View {
+        Label(destination.badgeTitle, systemImage: destination.systemImage)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(destination.tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(destination.tint.opacity(0.12))
+            )
+    }
 }
 
 private enum MarkdownRenderBlockParser {
@@ -296,6 +445,9 @@ private struct MarkdownLinkPreviewCard: View {
     private static let estimatedHeight: CGFloat = 196
     private static let previewImageHeight: CGFloat = 160
     private static let placeholderHeight: CGFloat = 100
+    private var destination: VoleMarkdownLinkDestination {
+        VoleMarkdownLinkDestination(url: url)
+    }
 
     var body: some View {
         GeometryReader { proxy in
@@ -333,6 +485,10 @@ private struct MarkdownLinkPreviewCard: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+
+                    MarkdownLinkDestinationBadge(
+                        destination: destination
+                    )
 
                     if let summary = preview?.summary, !summary.isEmpty {
                         Text(summary)
@@ -379,7 +535,7 @@ private struct MarkdownLinkPreviewCard: View {
                 )
 
                 VStack(spacing: 10) {
-                    Image(systemName: "link")
+                    Image(systemName: destination.systemImage)
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
 
@@ -406,6 +562,9 @@ private struct MarkdownLinkPreviewCard: View {
         }
         if let title, !title.isEmpty {
             return title
+        }
+        if let internalTitle = destination.internalTitle {
+            return internalTitle
         }
         return url.absoluteString
     }
@@ -1041,6 +1200,20 @@ private extension URL {
 
         return Int(components[2])
     }
+
+    var v2exNodeName: String? {
+        let host = host?.lowercased()
+        guard SiteConfiguration.matchesCurrentSite(host: host) else {
+            return nil
+        }
+
+        let components = pathComponents
+        guard components.count >= 3, components[1] == "go" else {
+            return nil
+        }
+
+        return components[2].removingPercentEncoding ?? components[2]
+    }
 }
 
 private extension String {
@@ -1233,6 +1406,12 @@ private struct MarkdownContentFormatter {
     private func markdownLink(for url: String) -> String {
         if url.range(of: imageURLPattern, options: .regularExpression) != nil {
             return "![image](\(url))"
+        }
+        if let parsedURL = URL(string: url),
+            let internalTitle = VoleMarkdownLinkDestination(url: parsedURL)
+                .internalTitle
+        {
+            return "[\(internalTitle)](\(url))"
         }
         return "[\(url)](\(url))"
     }

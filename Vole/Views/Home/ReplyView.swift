@@ -36,6 +36,8 @@ struct ReplyRowView: View {
                             print("@\(username)")
                         case .topic(let id):
                             path.append(Route.topicId(id))
+                        case .node(let name):
+                            path.append(Route.nodeName(name))
                         default:
                             break
                         }
