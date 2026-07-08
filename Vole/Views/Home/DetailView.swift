@@ -14,20 +14,36 @@ private let replyMentionRegex = try! NSRegularExpression(
     pattern: "@([A-Za-z0-9_]+)"
 )
 
+private struct ReplyListItem: Identifiable {
+    let reply: Reply
+    let floor: Int
+
+    var id: Int { reply.id }
+}
+
 struct DetailView: View {
     let topicId: Int?
     @State var topic: Topic?
+
+    private let reportReasons = [
+        "垃圾广告",
+        "色情或低俗内容",
+        "人身攻击 / 仇恨言论",
+        "违法或不当内容",
+        "其他原因",
+    ]
 
     @State private var selectedConversation: ReplyConversation?
     @State private var selectedConversationReplyId: Int?
     @State private var conversationByReplyId: [Int: ReplyConversation] = [:]
     @State private var showSafari = false
     @State private var safariURL: URL? = nil
-    @State private var showUserInfo = false
     @State private var selectedUser: Member?
-    @State private var showAlert = false
+    @State private var showBlockTopicAlert = false
+    @State private var showBlockUserAlert = false
     @State private var showReportDialog = false
     @State private var topicLoadErrorMessage: String?
+    @State private var repliesLoadErrorMessage: String?
 
     @StateObject private var nodeManager = NodeManager.shared
     @ObservedObject var blockManager = BlockManager.shared
@@ -35,13 +51,15 @@ struct DetailView: View {
 
     @State private var replies: [Reply]? = nil
     @State var isLoading = false
-    var filteredReplies: [Reply]? {
+    private var visibleReplyItems: [ReplyListItem]? {
         guard let r = replies else { return nil }
-        return visibleReplies(from: r)
+        return visibleReplyItems(from: r)
     }
 
-    @Environment(\.openURL) private var openURL
-    @Environment(\.appOpenURL) private var appOpenURL
+    private var commentRowInsets: EdgeInsets {
+        EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+    }
+
     @Binding var path: NavigationPath
 
     var body: some View {
@@ -79,18 +97,7 @@ struct DetailView: View {
                                     VoleMarkdownView(
                                         content: content,
                                         onMentionsChanged: nil,
-                                        onLinkAction: { action in
-                                            switch action {
-                                            case .mention(let username):
-                                                print("@\(username)")
-                                            case .topic(let id):
-                                                path.append(Route.topicId(id))
-                                            case .node(let name):
-                                                path.append(Route.nodeName(name))
-                                            default:
-                                                break
-                                            }
-                                        }
+                                        onLinkAction: handleMarkdownLinkAction
                                     )
                                 }
                             }
@@ -134,18 +141,7 @@ struct DetailView: View {
                                     VoleMarkdownView(
                                         content: supplement.content ?? "",
                                         onMentionsChanged: nil,
-                                        onLinkAction: { action in
-                                            switch action {
-                                            case .mention(let username):
-                                                print("@\(username)")
-                                            case .topic(let id):
-                                                path.append(Route.topicId(id))
-                                            case .node(let name):
-                                                path.append(Route.nodeName(name))
-                                            default:
-                                                break
-                                            }
-                                        }
+                                        onLinkAction: handleMarkdownLinkAction
                                     )
                                 }
                             }
@@ -161,7 +157,7 @@ struct DetailView: View {
                             await loadTopic()
                         }
                         group.addTask {
-                            await loadReply(topicId: id)
+                            await loadReply(topicId: id, force: true)
                         }
                     }
                 }
@@ -210,7 +206,7 @@ struct DetailView: View {
                             }
                         }
                         Button("屏蔽内容", systemImage: "text.page.slash") {
-                            showAlert = true
+                            showBlockTopicAlert = true
                         }
                         Button("举报内容", systemImage: "exclamationmark.bubble") {
                             showReportDialog = true
@@ -242,11 +238,7 @@ struct DetailView: View {
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
         }
-        .environment(\.appOpenURL) { url in
-            safariURL = url
-            showSafari = true
-        }
-        .alert("确定要屏蔽该话题吗？", isPresented: $showAlert) {
+        .alert("确定要屏蔽该话题吗？", isPresented: $showBlockTopicAlert) {
             Button("确认屏蔽", role: .destructive) {
                 Task {
                     await V2exAPI.shared.blockTopic(topic: topic)
@@ -259,32 +251,11 @@ struct DetailView: View {
             isPresented: $showReportDialog,
             titleVisibility: .visible
         ) {
-            Button("垃圾广告", role: .destructive) {
-                Task {
-                    await V2exAPI.shared.report(topic: topic, reason: "垃圾广告")
-                }
-            }
-            Button("色情或低俗内容", role: .destructive) {
-                Task {
-                    await V2exAPI.shared.report(topic: topic, reason: "色情或低俗内容")
-                }
-            }
-            Button("人身攻击 / 仇恨言论", role: .destructive) {
-                Task {
-                    await V2exAPI.shared.report(
-                        topic: topic,
-                        reason: "人身攻击 / 仇恨言论"
-                    )
-                }
-            }
-            Button("违法或不当内容", role: .destructive) {
-                Task {
-                    await V2exAPI.shared.report(topic: topic, reason: "违法或不当内容")
-                }
-            }
-            Button("其他原因", role: .destructive) {
-                Task {
-                    await V2exAPI.shared.report(topic: topic, reason: "其他原因")
+            ForEach(reportReasons, id: \.self) { reason in
+                Button(reason, role: .destructive) {
+                    Task {
+                        await V2exAPI.shared.report(topic: topic, reason: reason)
+                    }
                 }
             }
             Button("取消", role: .cancel) {}
@@ -342,7 +313,6 @@ struct DetailView: View {
         if let member = topic.member {
             Button {
                 selectedUser = member
-                showUserInfo = true
             } label: {
                 topicAuthorContent(member: member, created: topic.created)
             }
@@ -505,53 +475,55 @@ struct DetailView: View {
         showSafari = true
     }
 
+    private func handleMarkdownLinkAction(_ action: LinkAction) {
+        switch action {
+        case .mention(let username):
+            print("@\(username)")
+        case .topic(let id):
+            path.append(Route.topicId(id))
+        case .node(let name):
+            path.append(Route.nodeName(name))
+        }
+    }
+
     @ViewBuilder
     private func commentsSection(for topic: Topic) -> some View {
         if isLoading {
             Section {
                 commentsLoadingRow
-                    .listRowInsets(
-                        EdgeInsets(
-                            top: 0,
-                            leading: 16,
-                            bottom: 0,
-                            trailing: 16
-                        )
-                    )
+                    .listRowInsets(commentRowInsets)
             } header: {
                 commentsSectionHeader(count: nil)
             }
-        } else if let replies = filteredReplies {
+        } else if let errorMessage = repliesLoadErrorMessage, replies == nil {
+            Section {
+                commentsErrorRow(message: errorMessage, topicId: topic.id)
+                    .listRowInsets(commentRowInsets)
+            } header: {
+                commentsSectionHeader(count: nil)
+            }
+        } else if let replies = visibleReplyItems {
             if replies.isEmpty {
                 Section {
                     commentsEmptyRow
-                        .listRowInsets(
-                            EdgeInsets(
-                                top: 0,
-                                leading: 16,
-                                bottom: 0,
-                                trailing: 16
-                            )
-                        )
+                        .listRowInsets(commentRowInsets)
                 } header: {
                     commentsSectionHeader(count: 0)
                 }
             } else {
                 Section {
-                    ForEach(
-                        Array(replies.enumerated()),
-                        id: \.element.id
-                    ) { index, reply in
+                    ForEach(replies) { item in
+                        let reply = item.reply
                         let conversation =
                             conversationByReplyId[reply.id]
-                            ?? [(reply: reply, floor: index)]
+                            ?? [(reply: reply, floor: item.floor)]
                         let hasConversation = conversation.count > 1
 
                         ReplyRowView(
                             path: $path,
                             topic: topic,
                             reply: reply,
-                            floor: index,
+                            floor: item.floor,
                             showsConversationIndicator: hasConversation
                         )
                         .contentShape(Rectangle())
@@ -575,12 +547,7 @@ struct DetailView: View {
                             .tint(.accentColor)
                         }
                         .listRowInsets(
-                            EdgeInsets(
-                                top: 0,
-                                leading: 16,
-                                bottom: 0,
-                                trailing: 16
-                            )
+                            commentRowInsets
                         )
                     }
                 } header: {
@@ -649,6 +616,32 @@ struct DetailView: View {
         .padding(.vertical, 24)
     }
 
+    private func commentsErrorRow(message: String, topicId: Int) -> some View {
+        VStack(spacing: 12) {
+            VStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 26, weight: .medium))
+                    .foregroundStyle(.tertiary)
+
+                Text(message)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+            }
+
+            Button {
+                Task {
+                    await loadReply(topicId: topicId, force: true)
+                }
+            } label: {
+                Label("重试", systemImage: "arrow.clockwise")
+                    .font(.footnote.weight(.medium))
+            }
+            .buttonStyle(.bordered)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 22)
+    }
+
     private func copyReplyContent(_ content: String) {
         UIPasteboard.general.string = content
         UINotificationFeedbackGenerator().notificationOccurred(.success)
@@ -669,24 +662,34 @@ struct DetailView: View {
                     dismissConversation()
                 }
 
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(
-                        conversation,
-                        id: \.reply.id
-                    ) { item in
-                        conversationReplyCard(item, topic: topic)
+            GeometryReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(
+                            conversation,
+                            id: \.reply.id
+                        ) { item in
+                            conversationReplyCard(item, topic: topic)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 18)
+                    .padding(.bottom, 24)
+                    .frame(
+                        maxWidth: .infinity,
+                        minHeight: proxy.size.height,
+                        alignment: .top
+                    )
+                    .background {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                dismissConversation()
+                            }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 18)
-                .padding(.bottom, 24)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                dismissConversation()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .transition(.opacity)
         .zIndex(1)
@@ -721,6 +724,8 @@ struct DetailView: View {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(Color.white.opacity(0.08))
         )
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .onTapGesture {}
     }
 
     private func dismissConversation() {
@@ -740,7 +745,7 @@ struct DetailView: View {
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button(role: .destructive) {
-                    showAlert = true
+                    showBlockUserAlert = true
                 } label: {
                     Image(systemName: "person.slash")
                         .foregroundStyle(.red)
@@ -763,7 +768,7 @@ struct DetailView: View {
                 }
             }
         }
-        .alert("确定要屏蔽该用户吗？", isPresented: $showAlert) {
+        .alert("确定要屏蔽该用户吗？", isPresented: $showBlockUserAlert) {
             Button("确认屏蔽", role: .destructive) {
                 withAnimation(.spring()) {
                     BlockManager.shared.block(member.username)
@@ -803,12 +808,13 @@ struct DetailView: View {
     }
 
     private func conversation(
-        for reply: Reply,
-        in replies: [Reply],
+        for item: ReplyListItem,
+        in replies: [ReplyListItem],
         mentionsByReplyId: ReplyMentionMap
     ) -> ReplyConversation {
-        guard let idx = replies.firstIndex(where: { $0.id == reply.id }) else {
-            return [(reply: reply, floor: 0)]
+        let reply = item.reply
+        guard let idx = replies.firstIndex(where: { $0.reply.id == reply.id }) else {
+            return [(reply: reply, floor: item.floor)]
         }
 
         let currentUser = reply.member.username
@@ -819,31 +825,37 @@ struct DetailView: View {
         if !mentionedUsers.isEmpty {
             // 倒序遍历，收集自己 + 被提及用户的回复
             for i in stride(from: idx, through: 0, by: -1) {
-                let r = replies[i]
+                let r = replies[i].reply
                 if r.member.username == currentUser
                     || mentionedUsers.contains(r.member.username)
                 {
-                    conversation.append((reply: r, floor: i))
+                    conversation.append((reply: r, floor: replies[i].floor))
                 }
             }
             return conversation.reversed()
         } else {
             // 没有提及用户：表示是发表者自己发的
             // 从当前楼层往后遍历，收集所有回复了当前用户的评论
-            conversation.append((reply: reply, floor: idx))
+            conversation.append((reply: reply, floor: item.floor))
             for i in (idx + 1)..<replies.count {
-                let r = replies[i]
+                let r = replies[i].reply
                 let rMentions = mentionsByReplyId[r.id, default: []]
                 if rMentions.contains(currentUser) {
-                    conversation.append((reply: r, floor: i))
+                    conversation.append((reply: r, floor: replies[i].floor))
                 }
             }
             return conversation
         }
     }
 
-    private func visibleReplies(from replies: [Reply]) -> [Reply] {
-        replies.filter { !blockManager.isBlocked($0.member.username) }
+    private func visibleReplyItems(from replies: [Reply]) -> [ReplyListItem] {
+        replies.enumerated().compactMap { floor, reply in
+            guard !blockManager.isBlocked(reply.member.username) else {
+                return nil
+            }
+
+            return ReplyListItem(reply: reply, floor: floor)
+        }
     }
 
     private func rebuildConversationCacheFromCurrentReplies() {
@@ -853,20 +865,20 @@ struct DetailView: View {
             return
         }
 
-        rebuildConversationCache(for: visibleReplies(from: replies))
+        rebuildConversationCache(for: visibleReplyItems(from: replies))
     }
 
-    private func rebuildConversationCache(for replies: [Reply]) {
+    private func rebuildConversationCache(for replies: [ReplyListItem]) {
         let mentionsByReplyId = Dictionary(
             uniqueKeysWithValues: replies.map {
-                ($0.id, extractMentionedUsers(from: $0.content))
+                ($0.reply.id, extractMentionedUsers(from: $0.reply.content))
             }
         )
         var cache: [Int: ReplyConversation] = [:]
 
-        for reply in replies {
-            cache[reply.id] = conversation(
-                for: reply,
+        for item in replies {
+            cache[item.reply.id] = conversation(
+                for: item,
                 in: replies,
                 mentionsByReplyId: mentionsByReplyId
             )
@@ -895,21 +907,24 @@ struct DetailView: View {
         })
     }
 
-    func loadReply(topicId: Int) async {
-        guard replies == nil else { return }
+    func loadReply(topicId: Int, force: Bool = false) async {
+        guard force || replies == nil else { return }
         isLoading = true
+        repliesLoadErrorMessage = nil
         defer { isLoading = false }
         do {
             let r = try await V2exAPI.shared.repliesAll(topicId: topicId)
             replies = r
             if let r {
-                rebuildConversationCache(for: visibleReplies(from: r))
+                rebuildConversationCache(for: visibleReplyItems(from: r))
             } else {
                 conversationByReplyId = [:]
+                repliesLoadErrorMessage = "评论加载失败"
             }
         } catch {
             if (error as? URLError)?.code != .cancelled {
                 print("真正的错误: \(error)")
+                repliesLoadErrorMessage = "评论加载失败"
             }
         }
     }
