@@ -189,34 +189,42 @@ struct DetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem {
-                let shareURL = topic?.url ?? ""
-                ShareLink(item: shareURL) {
-                    Image(systemName: "square.and.arrow.up")
+            if selectedConversation == nil {
+                ToolbarItem {
+                    let shareURL = topic?.url ?? ""
+                    ShareLink(item: shareURL) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
                 }
-            }
-            if #available(iOS 26, *) {
-                ToolbarSpacer(.fixed)
-            }
-            ToolbarItem {
-                let shareURL = topic?.url ?? ""
-                Menu {
-                    Button("访问节点", systemImage: "scale.3d") {
-                        if let topic = topic, let node = topic.node {
-                            path.append(Route.node(node))
+
+                if #available(iOS 26, *) {
+                    ToolbarSpacer(.fixed)
+                }
+
+                ToolbarItem {
+                    let shareURL = topic?.url ?? ""
+                    Menu {
+                        Button("访问节点", systemImage: "scale.3d") {
+                            if let topic = topic, let node = topic.node {
+                                path.append(Route.node(node))
+                            }
                         }
+                        Button("屏蔽内容", systemImage: "text.page.slash") {
+                            showAlert = true
+                        }
+                        Button("举报内容", systemImage: "exclamationmark.bubble") {
+                            showReportDialog = true
+                        }
+                        Button("在浏览器中打开", systemImage: "safari") {
+                            presentSafari(for: shareURL)
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
-                    Button("屏蔽内容", systemImage: "text.page.slash") {
-                        showAlert = true
-                    }
-                    Button("举报内容", systemImage: "exclamationmark.bubble") {
-                        showReportDialog = true
-                    }
-                    Button("在浏览器中打开", systemImage: "safari") {
-                        presentSafari(for: shareURL)
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+                }
+            } else {
+                ToolbarItem(placement: .topBarTrailing) {
+                    conversationCloseButton
                 }
             }
         }
@@ -653,8 +661,8 @@ struct DetailView: View {
         _ topic: Topic
     ) -> some View {
         ZStack {
-            Color.clear
-                .background(.ultraThinMaterial)
+            Rectangle()
+                .fill(.ultraThinMaterial)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture {
@@ -662,23 +670,17 @@ struct DetailView: View {
                 }
 
             ScrollView {
-                LazyVStack(spacing: 0) {
+                LazyVStack(spacing: 12) {
                     ForEach(
                         conversation,
                         id: \.reply.id
                     ) { item in
-                        ReplyRowView(
-                            path: $path,
-                            topic: topic,
-                            reply: item.reply,
-                            floor: item.floor,
-                            showsConversationIndicator: false
-                        )
-                        .padding()
-                        Divider()
+                        conversationReplyCard(item, topic: topic)
                     }
                 }
-                .padding()
+                .padding(.horizontal, 16)
+                .padding(.top, 18)
+                .padding(.bottom, 24)
             }
             .contentShape(Rectangle())
             .onTapGesture {
@@ -688,6 +690,37 @@ struct DetailView: View {
         }
         .transition(.opacity)
         .zIndex(1)
+    }
+
+    private var conversationCloseButton: some View {
+        Button {
+            dismissConversation()
+        } label: {
+            Image(systemName: "xmark")
+        }
+        .accessibilityLabel("关闭对话")
+    }
+
+    private func conversationReplyCard(
+        _ item: ReplyConversation.Element,
+        topic: Topic
+    ) -> some View {
+        ReplyRowView(
+            path: $path,
+            topic: topic,
+            reply: item.reply,
+            floor: item.floor,
+            showsConversationIndicator: false
+        )
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground).opacity(0.82))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08))
+        )
     }
 
     private func dismissConversation() {
