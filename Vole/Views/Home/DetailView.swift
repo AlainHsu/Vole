@@ -8,19 +8,6 @@
 import Kingfisher
 import SwiftUI
 
-private typealias ReplyConversation = [(reply: Reply, floor: Int)]
-private typealias ReplyMentionMap = [Int: Set<String>]
-private let replyMentionRegex = try! NSRegularExpression(
-    pattern: "@([A-Za-z0-9_]+)"
-)
-
-private struct ReplyListItem: Identifiable {
-    let reply: Reply
-    let floor: Int
-
-    var id: Int { reply.id }
-}
-
 struct DetailView: View {
     let topicId: Int?
     @State var topic: Topic?
@@ -35,7 +22,7 @@ struct DetailView: View {
 
     @State private var selectedConversation: ReplyConversation?
     @State private var selectedConversationReplyId: Int?
-    @State private var conversationByReplyId: [Int: ReplyConversation] = [:]
+    @State private var conversationIndex = ReplyConversationIndex.empty
     @State private var showSafari = false
     @State private var safariURL: URL? = nil
     @State private var selectedUser: Member?
@@ -51,9 +38,9 @@ struct DetailView: View {
 
     @State private var replies: [Reply]? = nil
     @State var isLoading = false
-    private var visibleReplyItems: [ReplyListItem]? {
-        guard let r = replies else { return nil }
-        return visibleReplyItems(from: r)
+    private var visibleReplyItems: [ReplyConversationItem]? {
+        guard replies != nil else { return nil }
+        return conversationIndex.items
     }
 
     private var commentRowInsets: EdgeInsets {
@@ -515,9 +502,9 @@ struct DetailView: View {
                     ForEach(replies) { item in
                         let reply = item.reply
                         let conversation =
-                            conversationByReplyId[reply.id]
-                            ?? [(reply: reply, floor: item.floor)]
-                        let hasConversation = conversation.count > 1
+                            conversationIndex.conversation(containing: reply.id)
+                        let hasConversation =
+                            conversation?.hasMultipleReplies == true
 
                         ReplyRowView(
                             path: $path,
@@ -528,7 +515,7 @@ struct DetailView: View {
                         )
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            if hasConversation {
+                            if hasConversation, let conversation {
                                 withAnimation(.spring(dampingFraction: 0.6)) {
                                     selectedConversationReplyId = reply.id
                                     selectedConversation = conversation
@@ -666,10 +653,15 @@ struct DetailView: View {
                 ScrollView {
                     LazyVStack(spacing: 12) {
                         ForEach(
-                            conversation,
-                            id: \.reply.id
+                            conversation.items,
+                            id: \.id
                         ) { item in
-                            conversationReplyCard(item, topic: topic)
+                            conversationReplyCard(
+                                item,
+                                topic: topic,
+                                isSelected: item.reply.id
+                                    == selectedConversationReplyId
+                            )
                         }
                     }
                     .padding(.horizontal, 16)
@@ -705,8 +697,9 @@ struct DetailView: View {
     }
 
     private func conversationReplyCard(
-        _ item: ReplyConversation.Element,
-        topic: Topic
+        _ item: ReplyConversationItem,
+        topic: Topic,
+        isSelected: Bool
     ) -> some View {
         ReplyRowView(
             path: $path,
@@ -718,11 +711,20 @@ struct DetailView: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color(.secondarySystemGroupedBackground).opacity(0.82))
+                .fill(
+                    isSelected
+                        ? Color.accentColor.opacity(0.10)
+                        : Color(.secondarySystemGroupedBackground).opacity(0.82)
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.08))
+                .strokeBorder(
+                    isSelected
+                        ? Color.accentColor.opacity(0.42)
+                        : Color.white.opacity(0.08),
+                    lineWidth: isSelected ? 1.5 : 1
+                )
         )
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .onTapGesture {}
@@ -807,104 +809,32 @@ struct DetailView: View {
         }
     }
 
-    private func conversation(
-        for item: ReplyListItem,
-        in replies: [ReplyListItem],
-        mentionsByReplyId: ReplyMentionMap
-    ) -> ReplyConversation {
-        let reply = item.reply
-        guard let idx = replies.firstIndex(where: { $0.reply.id == reply.id }) else {
-            return [(reply: reply, floor: item.floor)]
-        }
-
-        let currentUser = reply.member.username
-        let mentionedUsers = mentionsByReplyId[reply.id, default: []]
-
-        var conversation: [(reply: Reply, floor: Int)] = []
-
-        if !mentionedUsers.isEmpty {
-            // 倒序遍历，收集自己 + 被提及用户的回复
-            for i in stride(from: idx, through: 0, by: -1) {
-                let r = replies[i].reply
-                if r.member.username == currentUser
-                    || mentionedUsers.contains(r.member.username)
-                {
-                    conversation.append((reply: r, floor: replies[i].floor))
-                }
-            }
-            return conversation.reversed()
-        } else {
-            // 没有提及用户：表示是发表者自己发的
-            // 从当前楼层往后遍历，收集所有回复了当前用户的评论
-            conversation.append((reply: reply, floor: item.floor))
-            for i in (idx + 1)..<replies.count {
-                let r = replies[i].reply
-                let rMentions = mentionsByReplyId[r.id, default: []]
-                if rMentions.contains(currentUser) {
-                    conversation.append((reply: r, floor: replies[i].floor))
-                }
-            }
-            return conversation
-        }
-    }
-
-    private func visibleReplyItems(from replies: [Reply]) -> [ReplyListItem] {
-        replies.enumerated().compactMap { floor, reply in
-            guard !blockManager.isBlocked(reply.member.username) else {
-                return nil
-            }
-
-            return ReplyListItem(reply: reply, floor: floor)
-        }
-    }
-
     private func rebuildConversationCacheFromCurrentReplies() {
         guard let replies else {
-            conversationByReplyId = [:]
+            conversationIndex = .empty
             selectedConversation = nil
             return
         }
 
-        rebuildConversationCache(for: visibleReplyItems(from: replies))
+        rebuildConversationCache(for: replies)
     }
 
-    private func rebuildConversationCache(for replies: [ReplyListItem]) {
-        let mentionsByReplyId = Dictionary(
-            uniqueKeysWithValues: replies.map {
-                ($0.reply.id, extractMentionedUsers(from: $0.reply.content))
-            }
-        )
-        var cache: [Int: ReplyConversation] = [:]
-
-        for item in replies {
-            cache[item.reply.id] = conversation(
-                for: item,
-                in: replies,
-                mentionsByReplyId: mentionsByReplyId
-            )
+    private func rebuildConversationCache(for replies: [Reply]) {
+        let index = ReplyConversationIndex(replies: replies) { reply in
+            !blockManager.isBlocked(reply.member.username)
         }
-
-        conversationByReplyId = cache
+        conversationIndex = index
         if let selectedConversationReplyId {
-            let updatedConversation = cache[selectedConversationReplyId]
-            if let updatedConversation, updatedConversation.count > 1 {
+            let updatedConversation = index.conversation(
+                containing: selectedConversationReplyId
+            )
+            if let updatedConversation, updatedConversation.hasMultipleReplies {
                 selectedConversation = updatedConversation
             } else {
                 selectedConversation = nil
                 self.selectedConversationReplyId = nil
             }
         }
-    }
-
-    // 提取 @ 用户名
-    private func extractMentionedUsers(from content: String) -> Set<String> {
-        let matches = replyMentionRegex.matches(
-            in: content,
-            range: NSRange(content.startIndex..., in: content)
-        )
-        return Set(matches.compactMap {
-            Range($0.range(at: 1), in: content).map { String(content[$0]) }
-        })
     }
 
     func loadReply(topicId: Int, force: Bool = false) async {
@@ -916,9 +846,9 @@ struct DetailView: View {
             let r = try await V2exAPI.shared.repliesAll(topicId: topicId)
             replies = r
             if let r {
-                rebuildConversationCache(for: visibleReplyItems(from: r))
+                rebuildConversationCache(for: r)
             } else {
-                conversationByReplyId = [:]
+                conversationIndex = .empty
                 repliesLoadErrorMessage = "评论加载失败"
             }
         } catch {
