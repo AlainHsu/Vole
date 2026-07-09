@@ -27,11 +27,16 @@ struct ReplyConversation: Identifiable, Hashable {
 }
 
 struct ReplyConversationIndex {
-    static let empty = ReplyConversationIndex(items: [], conversations: [:])
+    static let empty = ReplyConversationIndex(
+        items: [],
+        conversations: [:],
+        itemsByAuthor: [:]
+    )
 
     let items: [ReplyConversationItem]
 
     private let conversationsByReplyId: [Int: ReplyConversation]
+    private let itemsByAuthor: [String: [ReplyConversationItem]]
 
     init(
         replies: [Reply],
@@ -55,14 +60,20 @@ struct ReplyConversationIndex {
 
     private init(
         items: [ReplyConversationItem],
-        conversations: [Int: ReplyConversation]
+        conversations: [Int: ReplyConversation],
+        itemsByAuthor: [String: [ReplyConversationItem]]
     ) {
         self.items = items
         self.conversationsByReplyId = conversations
+        self.itemsByAuthor = itemsByAuthor
     }
 
     func conversation(containing replyId: Int) -> ReplyConversation? {
         conversationsByReplyId[replyId]
+    }
+
+    func items(byAuthor author: String) -> [ReplyConversationItem] {
+        itemsByAuthor[author] ?? []
     }
 
     static func mentionedUsernames(in content: String) -> [String] {
@@ -151,7 +162,8 @@ struct ReplyConversationIndex {
 
         return ReplyConversationIndex(
             items: items,
-            conversations: conversationByReplyId
+            conversations: conversationByReplyId,
+            itemsByAuthor: Dictionary(grouping: items, by: \.author)
         )
     }
 

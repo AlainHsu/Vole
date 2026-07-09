@@ -107,6 +107,20 @@ struct ReplyConversationIndexTests {
         #expect(conversation?.items.map(\.reply.id) == [3])
         #expect(conversation?.participants == ["carol", "blocked"])
     }
+
+    @Test func groupsRepliesByAuthorInFloorOrder() {
+        let replies = [
+            reply(1, author: "alice", content: "first"),
+            reply(2, author: "bob", content: "middle"),
+            reply(3, author: "alice", content: "@carol second"),
+        ]
+
+        let index = ReplyConversationIndex(replies: replies)
+
+        #expect(index.items(byAuthor: "alice").map(\.reply.id) == [1, 3])
+        #expect(index.items(byAuthor: "alice").map(\.floor) == [0, 2])
+        #expect(index.items(byAuthor: "missing").isEmpty)
+    }
 }
 
 private func reply(

@@ -22,6 +22,7 @@ struct DetailView: View {
 
     @State private var selectedConversation: ReplyConversation?
     @State private var selectedConversationReplyId: Int?
+    @State private var selectedAuthor: String?
     @State private var conversationIndex = ReplyConversationIndex.empty
     @State private var showSafari = false
     @State private var safariURL: URL? = nil
@@ -43,6 +44,10 @@ struct DetailView: View {
         return conversationIndex.items
     }
 
+    private var isCommentOverlayPresented: Bool {
+        selectedConversation != nil || selectedAuthor != nil
+    }
+
     private var commentRowInsets: EdgeInsets {
         EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
     }
@@ -52,110 +57,132 @@ struct DetailView: View {
     var body: some View {
         ZStack {
             if let topic = topic {
-                // 浮层对话视图
-                if let selectedConversation {
-                    conversationView(selectedConversation, topic)
-                }
+                ScrollViewReader { scrollProxy in
+                    ZStack {
+                        List {
+                            // 帖子详情部分
+                            Section {
+                                VStack(alignment: .leading, spacing: 14) {
+                                    topicHeader(for: topic)
 
-                List {
-                    // 帖子详情部分
-                    Section {
-                        VStack(alignment: .leading, spacing: 14) {
-                            topicHeader(for: topic)
-
-                            if let title = topic.title {
-                                topicTitleButton(title, urlString: topic.url)
-                            }
-
-                            topicEngagementMetrics(for: topic)
-
-                            if let content = topic.content, !content.isEmpty {
-                                VStack(alignment: .leading, spacing: 12) {
-                                    if content.isLikelyHTML {
-                                        HTMLContentNotice(
-                                            url: topic.url.flatMap(URL.init(string:)),
-                                            openURL: { url in
-                                                safariURL = url
-                                                showSafari = true
-                                            }
-                                        )
+                                    if let title = topic.title {
+                                        topicTitleButton(title, urlString: topic.url)
                                     }
 
-                                    VoleMarkdownView(
-                                        content: content,
-                                        onMentionsChanged: nil,
-                                        onLinkAction: handleMarkdownLinkAction
-                                    )
-                                }
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .listRowInsets(
-                            EdgeInsets(
-                                top: 14,
-                                leading: 16,
-                                bottom: 14,
-                                trailing: 16
-                            )
-                        )
-                    }
+                                    topicEngagementMetrics(for: topic)
 
-                    if let supplements = topic.supplements,
-                        !supplements.isEmpty
-                    {
-                        ForEach(supplements.indices, id: \.self) {
-                            idx in
-                            let supplement = supplements[idx]
-                            Section(
-                                header: HStack {
-                                    Text("第 \(idx + 1)条附言")
-                                    if let created = supplement.created {
-                                        TimelineView(.everyMinute) {
-                                            _ in
-                                            Text(
-                                                DateConverter
-                                                    .relativeTimeString(
-                                                        created
-                                                    )
+                                    if let content = topic.content, !content.isEmpty {
+                                        VStack(alignment: .leading, spacing: 12) {
+                                            if content.isLikelyHTML {
+                                                HTMLContentNotice(
+                                                    url: topic.url.flatMap(URL.init(string:)),
+                                                    openURL: { url in
+                                                        safariURL = url
+                                                        showSafari = true
+                                                    }
+                                                )
+                                            }
+
+                                            VoleMarkdownView(
+                                                content: content,
+                                                onMentionsChanged: nil,
+                                                onLinkAction: handleMarkdownLinkAction
                                             )
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
                                         }
                                     }
                                 }
-                            ) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    VoleMarkdownView(
-                                        content: supplement.content ?? "",
-                                        onMentionsChanged: nil,
-                                        onLinkAction: handleMarkdownLinkAction
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .listRowInsets(
+                                    EdgeInsets(
+                                        top: 14,
+                                        leading: 16,
+                                        bottom: 14,
+                                        trailing: 16
                                     )
+                                )
+                            }
+
+                            if let supplements = topic.supplements,
+                                !supplements.isEmpty
+                            {
+                                ForEach(supplements.indices, id: \.self) {
+                                    idx in
+                                    let supplement = supplements[idx]
+                                    Section(
+                                        header: HStack {
+                                            Text("第 \(idx + 1)条附言")
+                                            if let created = supplement.created {
+                                                TimelineView(.everyMinute) {
+                                                    _ in
+                                                    Text(
+                                                        DateConverter
+                                                            .relativeTimeString(
+                                                                created
+                                                            )
+                                                    )
+                                                    .font(.caption)
+                                                    .foregroundColor(.secondary)
+                                                }
+                                            }
+                                        }
+                                    ) {
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            VoleMarkdownView(
+                                                content: supplement.content ?? "",
+                                                onMentionsChanged: nil,
+                                                onLinkAction: handleMarkdownLinkAction
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            commentsSection(for: topic)
+
+                        }
+                        .refreshable {
+                            let id =  topic.id
+                            await withTaskGroup(of: Void.self) { group in
+                                group.addTask {
+                                    await loadTopic()
+                                }
+                                group.addTask {
+                                    await loadReply(topicId: id, force: true)
                                 }
                             }
                         }
-                    }
-                    commentsSection(for: topic)
+                        .task(id: topic.id) {
+                            let id =  topic.id
+                            await withTaskGroup(of: Void.self) { group in
+                                group.addTask {
+                                    await loadTopic()
+                                }
+                                group.addTask {
+                                    await loadReply(topicId: id)
+                                }
+                            }
+                        }
 
-                }
-                .refreshable {
-                    let id =  topic.id
-                    await withTaskGroup(of: Void.self) { group in
-                        group.addTask {
-                            await loadTopic()
-                        }
-                        group.addTask {
-                            await loadReply(topicId: id, force: true)
-                        }
-                    }
-                }
-                .task(id: topic.id) {
-                    let id =  topic.id
-                    await withTaskGroup(of: Void.self) { group in
-                        group.addTask {
-                            await loadTopic()
-                        }
-                        group.addTask {
-                            await loadReply(topicId: id)
+                        if let selectedConversation {
+                            replyCollectionOverlay(
+                                title: "对话",
+                                subtitle: conversationSubtitle(selectedConversation),
+                                systemImage: "bubble.left.and.bubble.right.fill",
+                                items: selectedConversation.items,
+                                topic: topic,
+                                selectedReplyId: selectedConversationReplyId,
+                                scrollProxy: scrollProxy
+                            )
+                        } else if let selectedAuthor {
+                            let items = authorReplyItems(for: selectedAuthor)
+                            replyCollectionOverlay(
+                                title: "只看 \(selectedAuthor)",
+                                subtitle: "\(items.count.formattedCount) 条评论",
+                                systemImage: "person.text.rectangle",
+                                items: items,
+                                topic: topic,
+                                selectedReplyId: nil,
+                                scrollProxy: scrollProxy
+                            )
                         }
                     }
                 }
@@ -172,7 +199,7 @@ struct DetailView: View {
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            if selectedConversation == nil {
+            if !isCommentOverlayPresented {
                 ToolbarItem {
                     let shareURL = topic?.url ?? ""
                     ShareLink(item: shareURL) {
@@ -207,7 +234,7 @@ struct DetailView: View {
                 }
             } else {
                 ToolbarItem(placement: .topBarTrailing) {
-                    conversationCloseButton
+                    commentOverlayCloseButton
                 }
             }
         }
@@ -516,16 +543,23 @@ struct DetailView: View {
                         .contentShape(Rectangle())
                         .onTapGesture {
                             if hasConversation, let conversation {
-                                withAnimation(.spring(dampingFraction: 0.6)) {
-                                    selectedConversationReplyId = reply.id
-                                    selectedConversation = conversation
-                                }
+                                presentConversation(
+                                    conversation,
+                                    selectedReplyId: reply.id
+                                )
                             }
                         }
                         .swipeActions(
                             edge: .trailing,
                             allowsFullSwipe: true
                         ) {
+                            Button {
+                                presentAuthor(reply.member.username)
+                            } label: {
+                                Label("只看TA", systemImage: "person.text.rectangle")
+                            }
+                            .tint(.blue)
+
                             Button {
                                 copyReplyContent(reply.content)
                             } label: {
@@ -536,6 +570,7 @@ struct DetailView: View {
                         .listRowInsets(
                             commentRowInsets
                         )
+                        .id(replyScrollID(reply.id))
                     }
                 } header: {
                     commentsSectionHeader(count: replies.count)
@@ -634,11 +669,43 @@ struct DetailView: View {
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
-    // 对话视图
-    @ViewBuilder
-    private func conversationView(
+    private func authorReplyItems(for username: String) -> [ReplyConversationItem] {
+        conversationIndex.items(byAuthor: username)
+    }
+
+    private func presentConversation(
         _ conversation: ReplyConversation,
-        _ topic: Topic
+        selectedReplyId: Int
+    ) {
+        withAnimation(.spring(dampingFraction: 0.6)) {
+            selectedAuthor = nil
+            selectedConversationReplyId = selectedReplyId
+            selectedConversation = conversation
+        }
+    }
+
+    private func presentAuthor(_ username: String) {
+        withAnimation(.spring(dampingFraction: 0.6)) {
+            selectedConversation = nil
+            selectedConversationReplyId = nil
+            selectedAuthor = username
+        }
+    }
+
+    private func replyScrollID(_ replyId: Int) -> String {
+        "reply-\(replyId)"
+    }
+
+    // 评论集合浮层
+    @ViewBuilder
+    private func replyCollectionOverlay(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        items: [ReplyConversationItem],
+        topic: Topic,
+        selectedReplyId: Int?,
+        scrollProxy: ScrollViewProxy
     ) -> some View {
         ZStack {
             Rectangle()
@@ -646,22 +713,32 @@ struct DetailView: View {
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture {
-                    dismissConversation()
+                    dismissCommentOverlay()
                 }
 
             GeometryReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 12) {
+                        replyCollectionHeader(
+                            title: title,
+                            subtitle: subtitle,
+                            systemImage: systemImage
+                        )
+
                         ForEach(
-                            conversation.items,
+                            items,
                             id: \.id
                         ) { item in
-                            conversationReplyCard(
+                            replyOverlayCard(
                                 item,
                                 topic: topic,
-                                isSelected: item.reply.id
-                                    == selectedConversationReplyId
-                            )
+                                isSelected: item.reply.id == selectedReplyId
+                            ) {
+                                closeCommentOverlayAndScroll(
+                                    to: item,
+                                    scrollProxy: scrollProxy
+                                )
+                            }
                         }
                     }
                     .padding(.horizontal, 16)
@@ -676,7 +753,7 @@ struct DetailView: View {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture {
-                                dismissConversation()
+                                dismissCommentOverlay()
                             }
                     }
                 }
@@ -687,19 +764,46 @@ struct DetailView: View {
         .zIndex(1)
     }
 
-    private var conversationCloseButton: some View {
+    private var commentOverlayCloseButton: some View {
         Button {
-            dismissConversation()
+            dismissCommentOverlay()
         } label: {
             Image(systemName: "xmark")
         }
-        .accessibilityLabel("关闭对话")
+        .accessibilityLabel("关闭浮层")
     }
 
-    private func conversationReplyCard(
+    private func replyCollectionHeader(
+        title: String,
+        subtitle: String,
+        systemImage: String
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+
+                Text(title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+            }
+
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 2)
+        .padding(.vertical, 4)
+    }
+
+    private func replyOverlayCard(
         _ item: ReplyConversationItem,
         topic: Topic,
-        isSelected: Bool
+        isSelected: Bool,
+        onSelect: @escaping () -> Void
     ) -> some View {
         ReplyRowView(
             path: $path,
@@ -727,13 +831,41 @@ struct DetailView: View {
                 )
         )
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .onTapGesture {}
+        .onTapGesture(perform: onSelect)
+        .accessibilityHint("返回第 \(item.floor + 1) 楼")
     }
 
-    private func dismissConversation() {
+    private func conversationSubtitle(_ conversation: ReplyConversation) -> String {
+        let count = "\(conversation.items.count.formattedCount) 条评论"
+        let names = conversation.participants.prefix(3).joined(separator: "、")
+        guard !names.isEmpty else { return count }
+
+        if conversation.participants.count > 3 {
+            return "\(count) · \(names) 等 \(conversation.participants.count.formattedCount) 人"
+        }
+
+        return "\(count) · \(names)"
+    }
+
+    private func dismissCommentOverlay() {
         withAnimation(.easeOut(duration: 0.16)) {
             selectedConversation = nil
             selectedConversationReplyId = nil
+            selectedAuthor = nil
+        }
+    }
+
+    private func closeCommentOverlayAndScroll(
+        to item: ReplyConversationItem,
+        scrollProxy: ScrollViewProxy
+    ) {
+        let targetID = replyScrollID(item.reply.id)
+
+        dismissCommentOverlay()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            withAnimation(.easeInOut(duration: 0.26)) {
+                scrollProxy.scrollTo(targetID, anchor: .center)
+            }
         }
     }
 
@@ -813,6 +945,8 @@ struct DetailView: View {
         guard let replies else {
             conversationIndex = .empty
             selectedConversation = nil
+            selectedConversationReplyId = nil
+            selectedAuthor = nil
             return
         }
 
@@ -824,6 +958,11 @@ struct DetailView: View {
             !blockManager.isBlocked(reply.member.username)
         }
         conversationIndex = index
+        if let selectedAuthor,
+            index.items(byAuthor: selectedAuthor).isEmpty
+        {
+            self.selectedAuthor = nil
+        }
         if let selectedConversationReplyId {
             let updatedConversation = index.conversation(
                 containing: selectedConversationReplyId
