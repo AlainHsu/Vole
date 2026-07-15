@@ -288,48 +288,55 @@ private struct VoleMarkdownLinkRenderer: MarkdownLinkRenderer {
     func makeBody(configuration: Configuration) -> some View {
         let destination = VoleMarkdownLinkDestination(url: configuration.url)
 
-        Link(destination: configuration.url) {
-            if destination.isInternal {
-                MarkdownInternalLinkPill(destination: destination)
-            } else {
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
+        if destination.isInternal {
+            Link(destination: configuration.url) {
+                MarkdownInternalLinkLabel(destination: destination) {
                     configuration.label
-                    Image(systemName: destination.systemImage)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(destination.tint)
-                        .accessibilityLabel(destination.badgeTitle)
                 }
             }
+            .buttonStyle(.plain)
+        } else {
+            Link(destination: configuration.url) {
+                configuration.label
+                    .foregroundStyle(Color.accentColor)
+            }
         }
-        .buttonStyle(.plain)
     }
 }
 
-private struct MarkdownInternalLinkPill: View {
+private struct MarkdownInternalLinkLabel<Label: View>: View {
     let destination: VoleMarkdownLinkDestination
+    let label: Label
+
+    init(
+        destination: VoleMarkdownLinkDestination,
+        @ViewBuilder label: () -> Label
+    ) {
+        self.destination = destination
+        self.label = label()
+    }
 
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: destination.systemImage)
                 .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(destination.tint)
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(
+                    Capsule()
+                        .fill(destination.tint.opacity(0.09))
+                )
+                .overlay {
+                    Capsule()
+                        .stroke(destination.tint.opacity(0.18), lineWidth: 1)
+                }
+                .accessibilityHidden(true)
 
-            Text(destination.internalTitle ?? destination.badgeTitle)
+            label
                 .font(.subheadline.weight(.semibold))
+                .foregroundStyle(destination.tint)
         }
-        .foregroundStyle(destination.tint)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(
-            Capsule()
-                .fill(destination.tint.opacity(0.09))
-        )
-        .overlay {
-            Capsule()
-                .stroke(destination.tint.opacity(0.18), lineWidth: 1)
-        }
-        .accessibilityLabel(
-            destination.internalTitle ?? destination.badgeTitle
-        )
     }
 }
 
@@ -1252,7 +1259,9 @@ private enum MarkdownImageCollector {
 
 private struct MarkdownContentFormatter {
     private let protectedPattern =
-        #"(?s)(```.*?```|`[^`\n]*`|!\[[^\]]*\]\([^)]+\)|\[[^\]]+\]\([^)]+\))"#
+        #"(?s)(```.*?```|`[^`\n]*`|!?\[(?:[^\[\]]|\[[^\]]*\])+\]\([^)]+\))"#
+    private let spacedLinkDestinationPattern =
+        #"(!?\[(?:[^\[\]]|\[[^\]]*\])+\])\(\s*(https?://[^)\s]+)\s*\)"#
     private let mentionPattern =
         #"(?<![\p{L}0-9_])@([\p{L}0-9_]+)(?![\p{L}0-9_])"#
     private let urlPattern =
@@ -1262,11 +1271,27 @@ private struct MarkdownContentFormatter {
 
     func format(_ content: String) -> (markdown: String, mentions: [String]) {
         var mentions: [String] = []
-        let markdown = transformUnprotectedSegments(in: content) {
+        let normalizedContent = normalizeLinkDestinations(in: content)
+        let markdown = transformUnprotectedSegments(in: normalizedContent) {
             segment in
             processTextSegment(segment, mentions: &mentions)
         }
         return (markdown, mentions)
+    }
+
+    private func normalizeLinkDestinations(in content: String) -> String {
+        guard let regex = try? NSRegularExpression(
+            pattern: spacedLinkDestinationPattern
+        ) else {
+            return content
+        }
+
+        let range = NSRange(content.startIndex..., in: content)
+        return regex.stringByReplacingMatches(
+            in: content,
+            range: range,
+            withTemplate: "$1($2)"
+        )
     }
 
     private func transformUnprotectedSegments(
