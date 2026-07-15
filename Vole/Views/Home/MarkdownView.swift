@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Highlightr
 import ImageIO
 import Kingfisher
 import LinkPresentation
@@ -110,6 +111,7 @@ struct VoleMarkdownView: View {
             .markdownElementRenderer(
                 .link(VoleMarkdownLinkRenderer(), urlScheme: "https")
             )
+            .markdownCodeBlockStyle(CompactMarkdownCodeBlockStyle())
             .markdownTableStyle(HorizontalScrollableMarkdownTableStyle())
             .font(.headline.weight(.semibold), for: .h1)
             .font(.headline.weight(.semibold), for: .h2)
@@ -198,6 +200,110 @@ struct VoleMarkdownView: View {
 
         var seenURLs = Set<URL>()
         return urls.filter { seenURLs.insert($0).inserted }
+    }
+}
+
+private struct CompactMarkdownCodeBlockStyle: MarkdownCodeBlockStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        CompactMarkdownCodeBlock(configuration: configuration)
+    }
+}
+
+private struct CompactMarkdownCodeBlock: View {
+    let configuration: MarkdownCodeBlockStyleConfiguration
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var didCopy = false
+    @State private var highlightedCode: AttributedString?
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            Group {
+                if let highlightedCode {
+                    Text(highlightedCode)
+                } else {
+                    Text(verbatim: displayedCode)
+                }
+            }
+                .font(.system(size: 13, weight: .regular, design: .monospaced))
+                .lineSpacing(1)
+                .padding(.leading, 12)
+                .padding(.trailing, 48)
+                .padding(.top, 10)
+                .padding(.bottom, 8)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: .secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+        }
+        .overlay(alignment: .topTrailing) {
+            copyButton
+                .padding(7)
+        }
+        .task(id: highlightID) {
+            await updateHighlighting()
+        }
+    }
+
+    private var copyButton: some View {
+        Button {
+            UIPasteboard.general.string = normalizedCode
+            didCopy = true
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(650))
+                didCopy = false
+            }
+        } label: {
+            Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(didCopy ? Color.green : Color.secondary)
+                .contentTransition(.symbolEffect(.replace))
+                .animation(.snappy(duration: 0.16), value: didCopy)
+                .frame(width: 26, height: 26)
+                .background(.thinMaterial, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(didCopy ? "已复制" : "复制代码")
+    }
+
+    private var normalizedCode: String {
+        configuration.code
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+    }
+
+    private var highlightID: String {
+        "\(colorScheme)-\(configuration.language ?? "")-\(displayedCode)"
+    }
+
+    private func updateHighlighting() async {
+        guard let highlightr = Highlightr() else { return }
+        let theme = colorScheme == .dark ? "dark" : "xcode"
+        await highlightr.setTheme(to: theme)
+
+        let requestedLanguage = configuration.language?.lowercased() ?? ""
+        let language = highlightr.supportedLanguages().first {
+            $0.localizedCaseInsensitiveCompare(requestedLanguage) == .orderedSame
+        }
+        guard let highlighted = highlightr.highlight(
+            displayedCode,
+            as: language
+        ) else {
+            highlightedCode = nil
+            return
+        }
+
+        let result = NSMutableAttributedString(attributedString: highlighted)
+        result.removeAttribute(.font, range: NSRange(location: 0, length: result.length))
+        highlightedCode = AttributedString(result)
+    }
+
+    private var displayedCode: String {
+        normalizedCode.hasSuffix("\n")
+            ? String(normalizedCode.dropLast())
+            : normalizedCode
     }
 }
 
@@ -299,7 +405,9 @@ private struct VoleMarkdownLinkRenderer: MarkdownLinkRenderer {
             Link(destination: configuration.url) {
                 configuration.label
                     .foregroundStyle(Color.accentColor)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
         }
     }
 }
@@ -1259,9 +1367,9 @@ private enum MarkdownImageCollector {
 
 private struct MarkdownContentFormatter {
     private let protectedPattern =
-        #"(?s)(```.*?```|`[^`\n]*`|!?\[(?:[^\[\]]|\[[^\]]*\])+\]\([^)]+\))"#
+        #"(?s)(```.*?```|`[^`\n]*`|!?\[(?:[^\[\]]|\[[^\]]*\])*\]\([^)]+\))"#
     private let spacedLinkDestinationPattern =
-        #"(!?\[(?:[^\[\]]|\[[^\]]*\])+\])\(\s*(https?://[^)\s]+)\s*\)"#
+        #"(!?\[(?:[^\[\]]|\[[^\]]*\])*\])\(\s*(https?://[^)\s]+)\s*\)"#
     private let mentionPattern =
         #"(?<![\p{L}0-9_])@([\p{L}0-9_]+)(?![\p{L}0-9_])"#
     private let urlPattern =
