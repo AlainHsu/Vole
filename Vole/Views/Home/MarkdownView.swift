@@ -243,7 +243,7 @@ private struct CompactMarkdownCodeBlock: View {
                 .padding(7)
         }
         .task(id: highlightID) {
-            await updateHighlighting()
+            updateHighlighting()
         }
     }
 
@@ -278,10 +278,10 @@ private struct CompactMarkdownCodeBlock: View {
         "\(colorScheme)-\(configuration.language ?? "")-\(displayedCode)"
     }
 
-    private func updateHighlighting() async {
+    private func updateHighlighting() {
         guard let highlightr = Highlightr() else { return }
         let theme = colorScheme == .dark ? "dark" : "xcode"
-        await highlightr.setTheme(to: theme)
+        highlightr.setTheme(to: theme)
 
         let requestedLanguage = configuration.language?.lowercased() ?? ""
         let language = highlightr.supportedLanguages().first {
