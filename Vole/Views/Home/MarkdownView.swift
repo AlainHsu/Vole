@@ -650,7 +650,7 @@ private struct MarkdownLinkPreviewCard: View {
                 )
 
                 VStack(spacing: 10) {
-                    Image(systemName: destination.systemImage)
+                    Image(systemName: "link")
                         .font(.system(size: 24, weight: .semibold))
                         .foregroundStyle(Color.accentColor)
 
