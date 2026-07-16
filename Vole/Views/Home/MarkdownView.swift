@@ -472,6 +472,9 @@ private enum MarkdownRenderBlockParser {
         var blocks: [MarkdownRenderBlock] = []
         var markdownLines: [String] = []
         var isInsideCodeFence = false
+        let normalizedContent = content
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
 
         func flushMarkdown() {
             guard !markdownLines.isEmpty else { return }
@@ -479,7 +482,7 @@ private enum MarkdownRenderBlockParser {
             markdownLines.removeAll(keepingCapacity: true)
         }
 
-        for line in content.components(separatedBy: .newlines) {
+        for line in normalizedContent.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
             if trimmed.hasPrefix("```") {
