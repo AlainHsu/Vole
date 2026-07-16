@@ -829,6 +829,7 @@ private struct TappableMarkdownImage: View {
     @State private var imageSize: CGSize?
     @State private var previewImage: KFCrossPlatformImage?
     @State private var previewData: Data?
+    @State private var containerWidth: CGFloat = 0
 
     init(
         url: URL,
@@ -877,10 +878,20 @@ private struct TappableMarkdownImage: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: size.height, alignment: .leading)
         }
-        .frame(height: displaySize(maxWidth: UIScreen.main.bounds.width).height)
+        .onGeometryChange(for: CGFloat.self) { geometry in
+            geometry.size.width
+        } action: { width in
+            guard width > 0, abs(containerWidth - width) > 0.5 else { return }
+            containerWidth = width
+        }
+        .frame(height: displaySize(maxWidth: resolvedContainerWidth).height)
         .task(id: url) {
             await loadImageSizeIfNeeded()
         }
+    }
+
+    private var resolvedContainerWidth: CGFloat {
+        containerWidth > 0 ? containerWidth : UIScreen.main.bounds.width
     }
 
     @ViewBuilder
